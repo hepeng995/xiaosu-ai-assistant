@@ -11,6 +11,7 @@ from loguru import logger
 from app.api.routes_admin_documents import router as documents_router
 from app.api.routes_chat import router as chat_router
 from app.api.routes_health import router as health_router
+from app.api.routes_im_dingtalk import router as im_dingtalk_router
 from app.api.routes_mock_api import router as mock_api_router
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
@@ -69,6 +70,7 @@ def create_app() -> FastAPI:
     app.include_router(documents_router)
     app.include_router(chat_router)
     app.include_router(mock_api_router)
+    app.include_router(im_dingtalk_router)
     return app
 
 
