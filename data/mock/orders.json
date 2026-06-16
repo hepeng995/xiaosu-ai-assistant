@@ -1,0 +1,14 @@
+[
+  {"id": "O20260608001", "amount": 1280, "date": "2026-06-08", "customer": "A公司", "status": "paid"},
+  {"id": "O20260608002", "amount": 3500, "date": "2026-06-08", "customer": "B公司", "status": "paid"},
+  {"id": "O20260609001", "amount": 880, "date": "2026-06-09", "customer": "C公司", "status": "paid"},
+  {"id": "O20260609002", "amount": 2200, "date": "2026-06-09", "customer": "A公司", "status": "paid"},
+  {"id": "O20260610001", "amount": 5600, "date": "2026-06-10", "customer": "D公司", "status": "paid"},
+  {"id": "O20260610002", "amount": 990, "date": "2026-06-10", "customer": "B公司", "status": "refund"},
+  {"id": "O20260611001", "amount": 1800, "date": "2026-06-11", "customer": "C公司", "status": "paid"},
+  {"id": "O20260611002", "amount": 4200, "date": "2026-06-11", "customer": "E公司", "status": "paid"},
+  {"id": "O20260612001", "amount": 760, "date": "2026-06-12", "customer": "A公司", "status": "paid"},
+  {"id": "O20260612002", "amount": 3100, "date": "2026-06-12", "customer": "F公司", "status": "paid"},
+  {"id": "O20260615001", "amount": 1500, "date": "2026-06-15", "customer": "B公司", "status": "paid"},
+  {"id": "O20260615002", "amount": 2800, "date": "2026-06-15", "customer": "C公司", "status": "paid"}
+]

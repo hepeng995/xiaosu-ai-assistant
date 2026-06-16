@@ -1,0 +1,6 @@
+[
+  {"id": "001", "name": "张三", "dept": "研发部", "level": "P5", "manager": "王经理"},
+  {"id": "002", "name": "李四", "dept": "市场部", "level": "P6", "manager": "刘总监"},
+  {"id": "003", "name": "王五", "dept": "研发部", "level": "P4", "manager": "王经理"},
+  {"id": "004", "name": "赵六", "dept": "财务部", "level": "P5", "manager": "孙经理"}
+]

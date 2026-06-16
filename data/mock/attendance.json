@@ -1,0 +1,10 @@
+[
+  {"emp_id": "001", "date": "2026-06-08", "check_in": "09:10", "check_out": "18:30", "status": "normal"},
+  {"emp_id": "001", "date": "2026-06-09", "check_in": "09:05", "check_out": "18:20", "status": "normal"},
+  {"emp_id": "001", "date": "2026-06-10", "check_in": "09:35", "check_out": "18:30", "status": "late"},
+  {"emp_id": "001", "date": "2026-06-11", "check_in": "09:00", "check_out": "18:00", "status": "normal"},
+  {"emp_id": "001", "date": "2026-06-12", "check_in": "09:15", "check_out": "18:30", "status": "normal"},
+  {"emp_id": "002", "date": "2026-06-08", "check_in": "09:00", "check_out": "18:00", "status": "normal"},
+  {"emp_id": "002", "date": "2026-06-09", "check_in": "09:20", "check_out": "18:30", "status": "normal"},
+  {"emp_id": "003", "date": "2026-06-10", "check_in": "08:55", "check_out": "18:00", "status": "normal"}
+]
