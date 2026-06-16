@@ -1,4 +1,5 @@
 """FastAPI 应用入口：装配中间件、异常处理与路由。"""
+
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -15,9 +16,13 @@ from app.core.logging import setup_logging
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """应用生命周期：启动时初始化日志。"""
+    """应用生命周期：启动初始化日志 + 数据库连通性检查。"""
+    from app.db.session import check_db_connection
+
     setup_logging()
     logger.info("应用启动 name={} env={}", settings.APP_NAME, settings.APP_ENV)
+    db_ok = await check_db_connection()
+    logger.info("数据库连通性: {}", "ok" if db_ok else "unavailable(将在实际查询时重试)")
     yield
     logger.info("应用关闭")
 
