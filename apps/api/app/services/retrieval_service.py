@@ -17,11 +17,11 @@ _VECTOR_SQL = text(
     """
     SELECT c.id, c.document_id, c.content, c.heading_path, c.page_number,
            c.paragraph_index, d.original_filename AS filename,
-           1 - (c.embedding <=> :emb::vector) AS score
+           1 - (c.embedding <=> CAST(:emb AS vector)) AS score
     FROM document_chunks c
     JOIN documents d ON c.document_id = d.id
     WHERE d.deleted_at IS NULL AND d.status = 'indexed'
-    ORDER BY c.embedding <=> :emb::vector
+    ORDER BY c.embedding <=> CAST(:emb AS vector)
     LIMIT :top_k
     """
 )
