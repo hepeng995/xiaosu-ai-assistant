@@ -1,0 +1,9 @@
+# pnpm 11+ 构建脚本控制：以下依赖允许执行 postinstall。
+#   - sharp: Next.js 图片优化的原生二进制
+#   - unrs-resolver: ESLint 使用的原生 resolver
+allowBuilds:
+  sharp: true
+  unrs-resolver: true
+onlyBuiltDependencies:
+  - sharp
+  - unrs-resolver
