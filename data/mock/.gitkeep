@@ -1,0 +1,2 @@
+# 占位文件：让 Git 跟踪 data/mock/ 空目录。
+# Mock 内部 API 的 JSON 数据（employees.json / attendance.json / orders.json）将在此存放。

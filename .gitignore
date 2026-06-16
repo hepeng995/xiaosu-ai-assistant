@@ -1,0 +1,60 @@
+# ===========================================================================
+# 小苏 AI 助手 · Git 忽略规则
+# 红线：.env 绝不提交；提交前请执行 git log -p | grep -iE "api_key|secret|sk-"
+# ===========================================================================
+
+# ---------- 敏感配置（绝不入库）----------
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# ---------- Python ----------
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.egg-info/
+build/
+dist/
+
+# ---------- Node / Next.js ----------
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+pnpm-debug.log*
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ---------- 日志产物（保留目录，忽略日志内容）----------
+logs/*.log
+logs/*.log.*
+
+# ---------- 上传产物（保留目录，忽略文件内容）----------
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/parsed/*
+!storage/parsed/.gitkeep
+
+# ---------- 编辑器与系统 ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*.bak
+.DS_Store
+Thumbs.db
+desktop.ini

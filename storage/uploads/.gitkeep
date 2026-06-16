@@ -1,0 +1,2 @@
+# 占位文件：让 Git 跟踪 storage/uploads/ 空目录。
+# 用户上传的原始文档（uuid 文件名）保存于此，文件内容被 .gitignore 忽略。
