@@ -3,6 +3,7 @@
 字段与根目录 ``.env.example`` 一一对应。敏感值用 ``replace_me`` 占位，
 生产环境通过环境变量覆盖。
 """
+
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict

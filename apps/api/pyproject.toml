@@ -13,9 +13,13 @@ dependencies = [
     "httpx>=0.28.0",
     "psycopg[binary]>=3.2.0",
     "redis>=5.2.0",
+    "sqlalchemy>=2.0.0",
+    "alembic>=1.13.0",
+    "pgvector>=0.3.0",
 ]
 
-# 第 1 阶段为最小骨架；SQLAlchemy/Alembic/pgvector/解析器留待第 2-3 阶段按需加入
+# 运行时依赖：FastAPI 服务 + 数据库（SQLAlchemy/Alembic/pgvector）
+# 文档解析器（pypdf/python-docx 等）将在第 3 阶段按需加入
 [dependency-groups]
 dev = [
     "pytest>=8.3.0",

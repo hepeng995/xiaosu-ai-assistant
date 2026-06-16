@@ -3,6 +3,7 @@
 错误码沿用《AI 助手开发文档》第 17 节，禁止自由发挥。
 所有异常统一返回 ``{success, error_code, message, trace_id}`` 结构。
 """
+
 from typing import Any
 
 from fastapi import FastAPI, Request

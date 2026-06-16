@@ -4,6 +4,7 @@
 后续阶段（RAG/IM/工具）将通过 ``logger.bind`` 或额外 sink 扩展
 ``llm.log`` / ``im.log`` / ``indexing.log`` / ``tool.log``。
 """
+
 import logging
 import sys
 from pathlib import Path

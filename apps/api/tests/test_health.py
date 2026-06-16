@@ -1,4 +1,5 @@
 """健康检查测试（不依赖真实 API Key 与外部服务）。"""
+
 from fastapi.testclient import TestClient
 
 from app.main import app
