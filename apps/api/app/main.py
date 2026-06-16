@@ -9,6 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api.routes_admin_documents import router as documents_router
+from app.api.routes_admin_logs import router as admin_logs_router
+from app.api.routes_admin_settings import router as admin_settings_router
 from app.api.routes_chat import router as chat_router
 from app.api.routes_health import router as health_router
 from app.api.routes_im_dingtalk import router as im_dingtalk_router
@@ -71,6 +73,8 @@ def create_app() -> FastAPI:
     app.include_router(chat_router)
     app.include_router(mock_api_router)
     app.include_router(im_dingtalk_router)
+    app.include_router(admin_logs_router)
+    app.include_router(admin_settings_router)
     return app
 
 

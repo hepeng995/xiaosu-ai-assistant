@@ -1,33 +1,44 @@
 /**
  * 后端 API 客户端封装。
- *
- * base url 来自构建期注入的环境变量 NEXT_PUBLIC_API_BASE_URL。
- * 统一处理错误体：{ success, error_code, message, trace_id }。
+ * base url 来自构建期注入的 NEXT_PUBLIC_API_BASE_URL。
  */
-
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
-/** 后端统一错误体。 */
-interface ApiErrorResponse {
-  success: false;
-  error_code: string;
-  message: string;
-  trace_id?: string;
+export interface DocumentItem {
+  id: string;
+  filename: string;
+  original_filename: string;
+  file_type: string;
+  file_size: number;
+  status: string;
+  version: number;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
-/** 解析后端错误并抛出 ApiError。 */
-export class ApiError extends Error {
-  errorCode: string;
-  traceId: string | undefined;
-  status: number;
+export interface MessageItem {
+  id: string;
+  conversation_id: string;
+  role: string;
+  content: string;
+  references: unknown[];
+  tool_calls: unknown[];
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  success: boolean;
+  error_code: string | null;
+  latency_ms: number | null;
+  created_at: string | null;
+}
 
-  constructor(errorCode: string, message: string, traceId: string | undefined, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.errorCode = errorCode;
-    this.traceId = traceId;
-    this.status = status;
-  }
+export interface ChatResult {
+  answer: string;
+  references: unknown[];
+  tool_calls: { name: string; arguments: Record<string, unknown> }[];
+  usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  refused: boolean;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -35,31 +46,44 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
   });
-
   if (!response.ok) {
-    let body: ApiErrorResponse | null = null;
-    try {
-      body = (await response.json()) as ApiErrorResponse;
-    } catch {
-      // 非 JSON 错误体，忽略
-    }
-    throw new ApiError(
-      body?.error_code ?? "UNKNOWN_ERROR",
-      body?.message ?? "请求失败，请稍后再试",
-      body?.trace_id,
-      response.status,
-    );
+    throw new Error(`请求失败 ${response.status}`);
   }
-
   return (await response.json()) as T;
 }
 
-export interface HealthResponse {
-  status: string;
-  service: string;
-}
-
-/** 后端 API 调用入口。 */
 export const api = {
-  health: () => request<HealthResponse>("/health"),
+  health: () => request<{ status: string; service: string }>("/health"),
+
+  documents: {
+    list: () => request<{ items: DocumentItem[]; total: number }>("/api/admin/documents"),
+    upload: (file: File) => {
+      const form = new FormData();
+      form.append("file", file);
+      return fetch(`${BASE_URL}/api/admin/documents`, { method: "POST", body: form }).then((r) => {
+        if (!r.ok) throw new Error("上传失败");
+        return r.json() as Promise<DocumentItem>;
+      });
+    },
+    remove: (id: string) =>
+      request<{ success: boolean }>(`/api/admin/documents/${id}`, { method: "DELETE" }),
+  },
+
+  messages: {
+    list: (limit = 50) =>
+      request<{ items: MessageItem[]; total: number }>(`/api/admin/messages?limit=${limit}`),
+  },
+
+  settings: {
+    get: () => request<Record<string, unknown>>("/api/admin/settings"),
+    health: () => request<{ database: string; service: string }>("/api/admin/settings/health"),
+  },
+
+  chat: {
+    send: (message: string) =>
+      request<ChatResult>("/api/chat", {
+        method: "POST",
+        body: JSON.stringify({ platform: "web", conversation_id: "debug", user_id: "admin", message }),
+      }),
+  },
 };
