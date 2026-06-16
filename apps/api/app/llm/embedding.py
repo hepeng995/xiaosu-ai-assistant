@@ -44,7 +44,7 @@ class EmbeddingService:
 
     async def _embed_via_api(self, texts: list[str]) -> list[list[float]]:
         url = f"{self._base_url.rstrip('/')}/embeddings"
-        payload = {"model": self._model, "input": texts}
+        payload = {"model": self._model, "input": texts, "dimensions": self._dim}
         headers = {"Authorization": f"Bearer {self._api_key}"}
         last_exc: Exception | None = None
         for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
