@@ -1,0 +1,67 @@
+# 小苏 AI 助手 · 容器编排
+# 一键启动：./scripts/start.sh （等价 docker compose up --build）
+# 依赖：根目录存在 .env（start.sh 会在缺失时自动从 .env.example 复制）
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: xiaosu-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: xiaosu
+    ports:
+      - "5433:5432"  # 宿主 5433 → 容器 5432（避免与本机其他 PG 冲突；容器间仍用 postgres:5432）
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d xiaosu"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    container_name: xiaosu-redis
+    ports:
+      - "6380:6379"  # 宿主 6380 → 容器 6379（避免与本机其他 Redis 冲突；容器间仍用 redis:6379）
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: ./apps/api
+    container_name: xiaosu-api
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./storage:/app/storage
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./apps/web
+      args:
+        # Next.js 的 NEXT_PUBLIC_* 在构建期编入前端；默认指向本机 API
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}
+    container_name: xiaosu-web
+    env_file:
+      - .env
+    ports:
+      - "3001:3000"  # 宿主 3001（本机 3000 已被占用）→ 容器 3000
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

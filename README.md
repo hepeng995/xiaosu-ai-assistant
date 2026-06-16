@@ -47,22 +47,28 @@ IM Webhook / Web 调试页
 
 ## 🚀 本地启动
 
-> ⚠️ **本节将在第 1 阶段（基础工程骨架）完成后补全可运行步骤。** 计划命令如下：
-
 ```bash
-# 1. 准备环境变量
-cp .env.example .env   # 填入真实 LLM_API_KEY / DINGTALK_* 等
+# 1. 准备环境变量（首次；start.sh 也会在缺失时自动复制）
+cp .env.example .env   # 填入真实 LLM_API_KEY / DINGTALK_* 等（骨架阶段可暂用占位值）
 
 # 2. 一键启动（PostgreSQL + pgvector + Redis + API + Web）
 ./scripts/start.sh     # 等价于 docker compose up --build
 
-# 3. 数据库迁移
+# 3. 数据库迁移（第 2 阶段起）
 ./scripts/migrate.sh
 
 # 4. 健康检查
 curl http://localhost:8000/health   # {"status":"ok","service":"xiaosu-api"}
-# 前端：http://localhost:3000
 ```
+
+访问地址：
+
+| 服务 | 地址 | 说明 |
+|------|------|------|
+| API | http://localhost:8000 | `/health` 健康检查 |
+| Web 后台 | http://localhost:3001 | 首页自动跳转 `/admin` |
+
+> 端口已避开本机常用端口（PostgreSQL→5433、Redis→6380、Web→3001，因本机 5432/6379/3000 被占用）。如需改回默认，修改 `docker-compose.yml` 的 `ports` 映射即可——容器间通信走内部网络，不受宿主端口影响。
 
 ## 🔑 环境变量
 
@@ -82,8 +88,8 @@ curl http://localhost:8000/health   # {"status":"ok","service":"xiaosu-api"}
 
 | 阶段 | 名称 | 状态 |
 |------|------|------|
-| 0 | 项目准备与规范 | 🟡 进行中 |
-| 1 | 基础工程骨架 | ⬜ 未开始 |
+| 0 | 项目准备与规范 | ✅ 完成 |
+| 1 | 基础工程骨架 | ✅ 完成 |
 | 2 | 数据模型与公共能力 | ⬜ 未开始 |
 | 3 | 文档知识库 | ⬜ 未开始 |
 | 4 | RAG 智能问答 | ⬜ 未开始 |
