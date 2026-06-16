@@ -1,7 +1,8 @@
-"""聊天服务：编排 Agent（LLM 自主选工具/检索）→ 引用 + 拒答 + 落库。"""
+"""聊天服务：编排 Agent（LLM 自主选工具/检索）→ 引用 + 拒答 + 落库 + 异常兜底。"""
 
 import time
 
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.agent import run as agent_run
@@ -12,6 +13,9 @@ from app.services.conversation_service import (
     save_message,
 )
 
+# 模型不可用兜底文案（不暴露技术细节）
+_LLM_UNAVAILABLE = "小苏的模型服务暂时不可用，请稍后再试。"
+
 
 async def chat(
     platform: str,
@@ -21,7 +25,7 @@ async def chat(
     session: AsyncSession,
     user_name: str | None = None,
 ) -> dict:
-    """主流程：敏感过滤 → Agent（自主选工具/检索）→ 引用 + 拒答 → 落库。"""
+    """主流程：敏感过滤 → Agent（自主选工具/检索）→ 引用 + 拒答 + 兜底 → 落库。"""
     start = time.time()
     conv = await get_or_create_conversation(platform, conversation_id, user_id, user_name, session)
 
@@ -44,7 +48,20 @@ async def chat(
     ]
 
     # Agent：LLM 自主决定调用哪个工具（含知识库检索），无 if-else 路由
-    result = await agent_run(history_msgs, message, session)
+    # 任何异常（含 LLM 认证失败/超时）都走兜底，保证 IM/Web 端必有友好回复
+    try:
+        result = await agent_run(history_msgs, message, session)
+    except Exception as exc:
+        logger.exception("Agent 执行失败，使用兜底文案: {}", exc)
+        await save_message(conv.id, "user", message, session)
+        await save_message(conv.id, "assistant", _LLM_UNAVAILABLE, session, success=False)
+        return {
+            "answer": _LLM_UNAVAILABLE,
+            "references": [],
+            "tool_calls": [],
+            "usage": {},
+            "refused": False,
+        }
 
     # 拒答判断：仅知识库检索且无命中 → 拒答（绝不编造）
     has_external_tool = any(tc.get("name") != "search_knowledge_base" for tc in result.tool_calls)
