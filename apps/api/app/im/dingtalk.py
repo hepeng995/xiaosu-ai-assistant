@@ -32,9 +32,7 @@ def verify_sign(timestamp: str, sign: str) -> bool:
 def parse_webhook(payload: dict) -> IMMessage:
     """解析钉钉 webhook payload 为统一 IMMessage。"""
     conv_type_raw = str(payload.get("conversationType", "1"))
-    conversation_type: Literal["group", "private"] = (
-        "group" if conv_type_raw == "2" else "private"
-    )
+    conversation_type: Literal["group", "private"] = "group" if conv_type_raw == "2" else "private"
     text = ((payload.get("text") or {}).get("content") or "").strip()
     return IMMessage(
         platform="dingtalk",
