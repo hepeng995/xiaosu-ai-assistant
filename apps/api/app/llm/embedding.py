@@ -47,11 +47,14 @@ class EmbeddingService:
         payload = {"model": self._model, "input": texts, "dimensions": self._dim}
         headers = {"Authorization": f"Bearer {self._api_key}"}
         last_exc: Exception | None = None
+        emb_logger = logger.bind(module="llm", event="embedding", model=self._model)
         for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
             try:
+                emb_logger.info("embedding 请求开始 attempt={} count={}", attempt, len(texts))
                 resp = await self._client.post(url, json=payload, headers=headers)
                 resp.raise_for_status()
                 data = resp.json()
+                emb_logger.info("embedding 请求成功 count={}", len(texts))
                 return [item["embedding"] for item in data["data"]]
             except Exception as exc:
                 last_exc = exc

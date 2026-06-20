@@ -17,9 +17,22 @@ export interface DocumentItem {
   updated_at: string;
 }
 
+export interface DocumentChunkItem {
+  id: string;
+  chunk_index: number;
+  content: string;
+  heading_path: string | null;
+  page_number: number | null;
+  paragraph_index: number | null;
+}
+
 export interface MessageItem {
   id: string;
   conversation_id: string;
+  platform: string;
+  user_id: string;
+  user_name: string | null;
+  conversation_key: string;
   role: string;
   content: string;
   references: unknown[];
@@ -33,12 +46,29 @@ export interface MessageItem {
   created_at: string | null;
 }
 
+export interface ReferenceItem {
+  document_id: string;
+  chunk_id: string;
+  filename: string;
+  heading_path?: string | null;
+  page_number?: number | null;
+  paragraph_index?: number | null;
+  quote: string;
+  score: number;
+}
+
 export interface ChatResult {
   answer: string;
-  references: unknown[];
+  references: ReferenceItem[];
   tool_calls: { name: string; arguments: Record<string, unknown> }[];
   usage: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
   refused: boolean;
+}
+
+interface StreamHandlers {
+  onToken?: (token: string) => void;
+  onReferences?: (references: ReferenceItem[]) => void;
+  onDone?: (done: { success: boolean; refused: boolean }) => void;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -50,6 +80,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`请求失败 ${response.status}`);
   }
   return (await response.json()) as T;
+}
+
+function parseSseBlock(block: string): { event: string; data: Record<string, unknown> } | null {
+  const eventLine = block.split("\n").find((line) => line.startsWith("event:"));
+  const dataLine = block.split("\n").find((line) => line.startsWith("data:"));
+  if (!eventLine || !dataLine) return null;
+  const event = eventLine.replace("event:", "").trim();
+  const rawData = dataLine.replace("data:", "").trim();
+  const parsed = JSON.parse(rawData) as Record<string, unknown>;
+  return { event, data: parsed };
+}
+
+function referenceList(value: unknown): ReferenceItem[] {
+  return Array.isArray(value) ? (value as ReferenceItem[]) : [];
 }
 
 export const api = {
@@ -67,6 +111,7 @@ export const api = {
     },
     remove: (id: string) =>
       request<{ success: boolean }>(`/api/admin/documents/${id}`, { method: "DELETE" }),
+    chunks: (id: string) => request<DocumentChunkItem[]>(`/api/admin/documents/${id}/chunks`),
   },
 
   messages: {
@@ -83,7 +128,64 @@ export const api = {
     send: (message: string) =>
       request<ChatResult>("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ platform: "web", conversation_id: "debug", user_id: "admin", message }),
+        body: JSON.stringify({
+          platform: "web",
+          conversation_id: "debug",
+          user_id: "admin",
+          message,
+        }),
       }),
+    stream: async (message: string, handlers: StreamHandlers = {}): Promise<ChatResult> => {
+      const response = await fetch(`${BASE_URL}/api/chat/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: "web",
+          conversation_id: "debug",
+          user_id: "admin",
+          message,
+        }),
+      });
+      if (!response.ok || !response.body) {
+        throw new Error(`请求失败 ${response.status}`);
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let answer = "";
+      let references: ReferenceItem[] = [];
+      let refused = false;
+
+      const consume = (block: string) => {
+        const parsed = parseSseBlock(block);
+        if (!parsed) return;
+        if (parsed.event === "token") {
+          const token = typeof parsed.data.content === "string" ? parsed.data.content : "";
+          answer += token;
+          handlers.onToken?.(token);
+        }
+        if (parsed.event === "references") {
+          references = referenceList(parsed.data.references);
+          handlers.onReferences?.(references);
+        }
+        if (parsed.event === "done") {
+          refused = Boolean(parsed.data.refused);
+          handlers.onDone?.({ success: Boolean(parsed.data.success), refused });
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() ?? "";
+        blocks.forEach(consume);
+      }
+      if (buffer.trim()) consume(buffer);
+
+      return { answer, references, tool_calls: [], usage: {}, refused };
+    },
   },
 };

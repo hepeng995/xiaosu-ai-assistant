@@ -6,6 +6,7 @@ mock 模式：用启发式模拟模型的工具选择与最终回答，仅用于
 
 import json
 import re
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
@@ -46,6 +47,46 @@ class LLMService:
             return self._mock_chat_with_tools(messages)
         return await self._chat_with_tools_api(messages, tools_schema)
 
+    async def chat_stream(
+        self, messages: list[dict], temperature: float = 0.3
+    ) -> AsyncIterator[str]:
+        """流式输出最终回答 token；mock 模式按小片段降级。"""
+        if self.use_mock:
+            content = self._mock_chat(messages).content
+            for i in range(0, len(content), 6):
+                yield content[i : i + 6]
+            return
+
+        url = f"{self._base_url.rstrip('/')}/chat/completions"
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        llm_logger = logger.bind(module="llm", event="chat_stream", model=self._model)
+        llm_logger.info("LLM 流式请求开始 messages={}", len(messages))
+        async with self._client.stream("POST", url, json=payload, headers=headers) as resp:
+            if resp.status_code in (401, 403):
+                raise RuntimeError("LLM_AUTH_ERROR")
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line.removeprefix("data:").strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                delta = chunk.get("choices", [{}])[0].get("delta", {})
+                token = delta.get("content")
+                if token:
+                    yield token
+        llm_logger.info("LLM 流式请求结束")
+
     async def _chat_via_api(self, messages: list[dict], temperature: float) -> LLMResponse:
         url = f"{self._base_url.rstrip('/')}/chat/completions"
         payload = {"model": self._model, "messages": messages, "temperature": temperature}
@@ -66,12 +107,19 @@ class LLMService:
     async def _post(self, url: str, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self._api_key}"}
         last_exc: Exception | None = None
+        llm_logger = logger.bind(module="llm", event="chat", model=self._model)
         for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
             try:
+                llm_logger.info(
+                    "LLM 请求开始 attempt={} messages={}",
+                    attempt,
+                    len(payload.get("messages", [])),
+                )
                 resp = await self._client.post(url, json=payload, headers=headers)
                 if resp.status_code in (401, 403):
                     raise RuntimeError("LLM_AUTH_ERROR")
                 resp.raise_for_status()
+                llm_logger.info("LLM 请求成功 status={}", resp.status_code)
                 return resp.json()
             except RuntimeError:
                 raise

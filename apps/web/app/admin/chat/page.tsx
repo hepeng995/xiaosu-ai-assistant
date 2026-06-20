@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
-import { api, type ChatResult } from "@/lib/api";
+import { api, type ChatResult, type ReferenceItem } from "@/lib/api";
 
 export default function ChatPage() {
   const [input, setInput] = useState("");
@@ -13,10 +14,35 @@ export default function ChatPage() {
     if (!input.trim()) return;
     setLoading(true);
     setError("");
-    setResult(null);
+    setResult({ answer: "", references: [], tool_calls: [], usage: {}, refused: false });
     try {
-      const r = await api.chat.send(input);
-      setResult(r);
+      const r = await api.chat.stream(input, {
+        onToken: (token) =>
+          setResult((prev) => ({
+            answer: `${prev?.answer ?? ""}${token}`,
+            references: prev?.references ?? [],
+            tool_calls: prev?.tool_calls ?? [],
+            usage: prev?.usage ?? {},
+            refused: prev?.refused ?? false,
+          })),
+        onReferences: (references) =>
+          setResult((prev) => ({
+            answer: prev?.answer ?? "",
+            references,
+            tool_calls: prev?.tool_calls ?? [],
+            usage: prev?.usage ?? {},
+            refused: prev?.refused ?? false,
+          })),
+        onDone: (done) =>
+          setResult((prev) => ({
+            answer: prev?.answer ?? "",
+            references: prev?.references ?? [],
+            tool_calls: prev?.tool_calls ?? [],
+            usage: prev?.usage ?? {},
+            refused: done.refused,
+          })),
+      });
+      setResult((prev) => ({ ...r, answer: prev?.answer || r.answer }));
     } catch (e) {
       setError(`请求失败: ${e}`);
     } finally {
@@ -62,10 +88,20 @@ export default function ChatPage() {
                 参考来源（{result.references.length}）
               </h3>
               <ul className="space-y-1 text-sm">
-                {(result.references as { filename: string; heading_path?: string }[]).map((r, i) => (
-                  <li key={i} className="text-blue-700">
-                    [{i + 1}] {r.filename}
-                    {r.heading_path ? `｜${r.heading_path}` : ""}
+                {result.references.map((r: ReferenceItem, i) => (
+                  <li key={r.chunk_id || i} className="text-blue-700">
+                    <Link
+                      className="hover:underline"
+                      href={`/admin/documents/${r.document_id}?chunk=${r.chunk_id}`}
+                    >
+                      [{i + 1}] {r.filename}
+                      {r.heading_path ? `｜${r.heading_path}` : ""}
+                      {r.page_number ? `｜第 ${r.page_number} 页` : ""}
+                      {r.paragraph_index !== null && r.paragraph_index !== undefined
+                        ? `｜第 ${r.paragraph_index} 段`
+                        : ""}
+                    </Link>
+                    <p className="mt-1 text-xs text-gray-500">{r.quote}</p>
                   </li>
                 ))}
               </ul>

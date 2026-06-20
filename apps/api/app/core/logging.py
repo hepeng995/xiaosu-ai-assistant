@@ -1,14 +1,15 @@
 """日志配置：loguru 落盘到 ``logs/``，结构化字段含 ``trace_id``。
 
-第 1 阶段配置：控制台 + ``app.log``(INFO+) + ``error.log``(ERROR+)。
-后续阶段（RAG/IM/工具）将通过 ``logger.bind`` 或额外 sink 扩展
+配置：控制台 + ``app.log`` / ``error.log``，并按 ``module`` 分流到
 ``llm.log`` / ``im.log`` / ``indexing.log`` / ``tool.log``。
 """
 
 import logging
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from types import FrameType
+from typing import Any
 
 from loguru import logger
 
@@ -38,6 +39,15 @@ class _InterceptHandler(logging.Handler):
             frame = frame.f_back
             depth += 1
         logger.opt(depth=depth, exception=record.exc_info).log(level, record.getMessage())
+
+
+def _module_filter(module_name: str) -> Callable[..., bool]:
+    """生成 loguru sink filter，按 extra.module 分流。"""
+
+    def _filter(record: Any) -> bool:
+        return record["extra"].get("module") == module_name
+
+    return _filter
 
 
 def setup_logging() -> None:
@@ -79,6 +89,23 @@ def setup_logging() -> None:
         encoding="utf-8",
         enqueue=True,
     )
+
+    for module_name, filename in (
+        ("llm", "llm.log"),
+        ("im", "im.log"),
+        ("indexing", "indexing.log"),
+        ("tool", "tool.log"),
+    ):
+        logger.add(
+            log_dir / filename,
+            format=_LOG_FORMAT,
+            level="INFO",
+            rotation="10 MB",
+            retention="14 days",
+            encoding="utf-8",
+            enqueue=True,
+            filter=_module_filter(module_name),
+        )
 
     # 拦截标准 logging，让 uvicorn / sqlalchemy 的日志也走 loguru
     logging.basicConfig(handlers=[_InterceptHandler()], level=0, force=True)

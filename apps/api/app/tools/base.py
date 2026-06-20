@@ -12,6 +12,7 @@ class ToolResult(BaseModel):
     success: bool
     data: dict[str, Any] | list[Any] | str | None = None
     error_message: str | None = None
+    error_code: str | None = None
 
 
 @runtime_checkable

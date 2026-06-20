@@ -1,5 +1,6 @@
 """工具注册表：注册工具、输出 Tool Schema 给 LLM、按名查找并执行。"""
 
+import asyncio
 import time
 import uuid
 from typing import Any
@@ -7,6 +8,8 @@ from typing import Any
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
+from app.core.errors import ErrorCode
 from app.db.session import AsyncSessionLocal
 from app.models import ToolCallLog
 from app.tools.attendance_tool import AttendanceTool
@@ -49,19 +52,40 @@ async def execute_tool(
     message_id: uuid.UUID | None = None,
 ) -> ToolResult:
     """执行工具并写入 tool_call_logs。"""
+    tool_logger = logger.bind(module="tool", event="tool_call", tool_name=tool.name)
     start = time.time()
-    result = await tool.run(arguments)
+    try:
+        result = await asyncio.wait_for(tool.run(arguments), timeout=settings.TOOL_TIMEOUT_SECONDS)
+    except TimeoutError:
+        result = ToolResult(
+            success=False,
+            error_code=ErrorCode.TOOL_TIMEOUT,
+            error_message="工具调用超时",
+        )
+    except Exception as exc:
+        result = ToolResult(
+            success=False,
+            error_code=ErrorCode.TOOL_ERROR,
+            error_message="工具调用失败",
+        )
+        tool_logger.warning("工具执行异常: {}", exc)
+    if not result.success and result.error_code is None:
+        result.error_code = ErrorCode.TOOL_ERROR
     latency_ms = int((time.time() - start) * 1000)
+    tool_logger.info("工具调用完成 success={} latency_ms={}", result.success, latency_ms)
     try:
         async with AsyncSessionLocal() as session:
+            log_result = (
+                result.data
+                if result.success and isinstance(result.data, (dict, list))
+                else {"error_code": result.error_code, "error_message": result.error_message}
+            )
             session.add(
                 ToolCallLog(
                     message_id=message_id,
                     tool_name=tool.name,
                     arguments=arguments,
-                    result=result.data
-                    if isinstance(result.data, (dict, list))
-                    else {"text": result.data},
+                    result=log_result,
                     success=result.success,
                     error_message=result.error_message,
                     latency_ms=latency_ms,

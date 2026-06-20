@@ -15,8 +15,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock* ./
 RUN uv sync --no-dev --no-install-project
 
-# 再拷贝源码并完成安装
+# 再拷贝源码、迁移配置并完成安装
 COPY app ./app
+COPY alembic.ini ./
+COPY migrations ./migrations
 RUN uv sync --no-dev --no-install-project
 
 EXPOSE 8000

@@ -56,12 +56,16 @@ def chunk_blocks(blocks: list[ParsedBlock], chunk_size: int, overlap: int) -> li
 
 async def index_document(document_id: uuid.UUID) -> None:
     """完整索引流程（在后台任务中执行）：解析→分块→embedding→入库。"""
+    index_logger = logger.bind(
+        module="indexing", event="index_document", document_id=str(document_id)
+    )
     async with AsyncSessionLocal() as session:
         doc = await session.get(Document, document_id)
         if doc is None:
-            logger.warning("索引任务未找到文档: {}", document_id)
+            index_logger.warning("索引任务未找到文档")
             return
         try:
+            index_logger.info("文档索引开始")
             doc.status = "indexing"
             doc.error_message = None
             await session.commit()
@@ -88,9 +92,9 @@ async def index_document(document_id: uuid.UUID) -> None:
                 )
             doc.status = "indexed"
             await session.commit()
-            logger.info("文档索引完成 doc={} chunks={}", doc.id, len(chunks))
+            index_logger.info("文档索引完成 chunks={}", len(chunks))
         except Exception as exc:
             doc.status = "failed"
             doc.error_message = str(exc)[:500]
             await session.commit()
-            logger.exception("文档索引失败 doc={}", document_id)
+            index_logger.exception("文档索引失败")

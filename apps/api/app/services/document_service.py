@@ -7,7 +7,7 @@ from pathlib import Path
 
 from fastapi import UploadFile
 from loguru import logger
-from sqlalchemy import delete, select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -42,7 +42,7 @@ async def upload_document(file: UploadFile, session: AsyncSession) -> Document:
 
     file_hash = hashlib.sha256(content).hexdigest()
 
-    # 同名替换：旧文档软删除 + 旧 chunks 物理清除（不再参与检索）
+    # 同名替换：旧文档软删除 + 旧 chunks 标记停用（不再参与检索）
     version = 1
     existing_result = await session.execute(
         select(Document).where(
@@ -54,7 +54,11 @@ async def upload_document(file: UploadFile, session: AsyncSession) -> Document:
         version = existing.version + 1
         existing.status = "deleted"
         existing.deleted_at = datetime.now(UTC)
-        await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == existing.id))
+        await session.execute(
+            update(DocumentChunk)
+            .where(DocumentChunk.document_id == existing.id, DocumentChunk.deleted_at.is_(None))
+            .values(deleted_at=datetime.now(UTC))
+        )
         logger.info("同名替换: {} v{} → v{}", original, existing.version, version)
 
     stored_name = f"{uuid.uuid4().hex}{ext}"
@@ -104,7 +108,7 @@ async def list_chunks(document_id: uuid.UUID, session: AsyncSession) -> list[Doc
     """列出文档的分块（按 chunk_index）。"""
     result = await session.execute(
         select(DocumentChunk)
-        .where(DocumentChunk.document_id == document_id)
+        .where(DocumentChunk.document_id == document_id, DocumentChunk.deleted_at.is_(None))
         .order_by(DocumentChunk.chunk_index)
     )
     return list(result.scalars().all())

@@ -2,10 +2,8 @@
 
 from typing import Any
 
-import httpx
-
-from app.core.config import settings
 from app.tools.base import ToolResult
+from app.tools.internal_api import request_internal_api
 
 
 class OrdersTool:
@@ -34,14 +32,16 @@ class OrdersTool:
         end_date = str(arguments.get("end_date", "")).strip()
         if not (start_date and end_date):
             return ToolResult(success=False, error_message="缺少 start_date/end_date")
-        base = f"http://localhost:{settings.APP_PORT}"
         try:
-            async with httpx.AsyncClient(timeout=settings.TOOL_TIMEOUT_SECONDS) as client:
-                resp = await client.get(
-                    f"{base}/mock-api/orders",
-                    params={"start_date": start_date, "end_date": end_date},
+            resp = await request_internal_api(
+                "/mock-api/orders",
+                params={"start_date": start_date, "end_date": end_date},
+            )
+            if resp.status_code >= 400:
+                return ToolResult(
+                    success=False,
+                    error_message=f"订单查询失败: HTTP {resp.status_code}",
                 )
-            resp.raise_for_status()
-            return ToolResult(success=True, data=resp.json())
+            return ToolResult(success=True, data=resp.data)
         except Exception as exc:
             return ToolResult(success=False, error_message=f"订单查询失败: {exc}")

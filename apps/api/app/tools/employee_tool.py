@@ -2,10 +2,8 @@
 
 from typing import Any
 
-import httpx
-
-from app.core.config import settings
 from app.tools.base import ToolResult
+from app.tools.internal_api import request_internal_api
 
 
 class EmployeeTool:
@@ -32,13 +30,15 @@ class EmployeeTool:
         emp_id = str(arguments.get("employee_id", "")).strip()
         if not emp_id:
             return ToolResult(success=False, error_message="缺少 employee_id")
-        base = f"http://localhost:{settings.APP_PORT}"
         try:
-            async with httpx.AsyncClient(timeout=settings.TOOL_TIMEOUT_SECONDS) as client:
-                resp = await client.get(f"{base}/mock-api/employees/{emp_id}")
+            resp = await request_internal_api(f"/mock-api/employees/{emp_id}")
             if resp.status_code == 404:
                 return ToolResult(success=False, error_message=f"员工 {emp_id} 不存在")
-            resp.raise_for_status()
-            return ToolResult(success=True, data=resp.json())
+            if resp.status_code >= 400:
+                return ToolResult(
+                    success=False,
+                    error_message=f"员工查询失败: HTTP {resp.status_code}",
+                )
+            return ToolResult(success=True, data=resp.data)
         except Exception as exc:
             return ToolResult(success=False, error_message=f"员工查询失败: {exc}")

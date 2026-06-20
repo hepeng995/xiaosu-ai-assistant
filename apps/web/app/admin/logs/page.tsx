@@ -43,6 +43,7 @@ export default function LogsPage() {
         <thead>
           <tr className="border-b text-left text-gray-500">
             <th className="p-2">时间</th>
+            <th className="p-2">平台/用户</th>
             <th className="p-2">角色</th>
             <th className="p-2">内容</th>
             <th className="p-2">工具</th>
@@ -59,6 +60,10 @@ export default function LogsPage() {
                 <td className="p-2 whitespace-nowrap text-gray-500">
                   {m.created_at?.slice(5, 16)}
                 </td>
+                <td className="p-2">
+                  <div className="font-medium text-gray-700">{m.platform}</div>
+                  <div className="text-xs text-gray-500">{m.user_name || m.user_id}</div>
+                </td>
                 <td className="p-2">{m.role}</td>
                 <td className="p-2 max-w-md whitespace-pre-wrap break-all">{m.content}</td>
                 <td className="p-2 text-blue-600">{tools}</td>
@@ -70,7 +75,7 @@ export default function LogsPage() {
           })}
           {items.length === 0 && (
             <tr>
-              <td colSpan={7} className="p-8 text-center text-gray-400">
+              <td colSpan={8} className="p-8 text-center text-gray-400">
                 暂无对话记录
               </td>
             </tr>

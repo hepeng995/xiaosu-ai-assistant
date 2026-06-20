@@ -7,11 +7,11 @@
 | # | 功能 | 说明 |
 |---|------|------|
 | 1 | 📚 文档知识库 | 上传 md/pdf/docx/txt，解析→分块→向量化→pgvector 入库；列表/删除/同名替换 |
-| 2 | 💬 智能问答（RAG） | 基于知识库回答，**带引用**（文件名+章节），无依据**拒答**；多轮 + SSE 流式 |
+| 2 | 💬 智能问答（RAG） | 基于知识库回答，**带可定位引用**（文件名+章节/页码/段落+原文），无依据**拒答**；多轮 + 真 SSE 流式 |
 | 3 | 🔧 工具调用（Agent） | 模型按 Tool Schema **自主选择**（禁 if-else）；员工/考勤/订单/时间/知识库 |
-| 4 | 📱 IM 集成（钉钉） | 群聊 @/私聊、验签、多轮上下文、引用展示、异常兜底 |
-| 5 | 🖥 Web 管理后台 | 文档管理 + 对话日志 + 系统设置 + 调试聊天 |
-| 6 | 🛡 工程化 | 一条命令启动、配置外置、logs/ 日志、错误兜底、16 条测试 |
+| 4 | 📱 IM 集成（钉钉 + 飞书） | 群聊 @/私聊、验签、多轮上下文、引用展示、异常兜底 |
+| 5 | 🖥 Web 管理后台 | 文档管理 + 分块预览/高亮 + 对话日志（平台/用户/工具/Token）+ 系统设置 + 调试聊天 |
+| 6 | 🛡 工程化 | 一条命令启动、配置外置、分文件日志、错误兜底、自动化测试 |
 
 ## 🛠 技术栈
 
@@ -33,7 +33,7 @@ IM Webhook / Web 调试页
       ├── search_knowledge_base → pgvector 检索（阈值 0.72 拒答）
       ├── get_employee / get_attendance / get_orders → Mock API (/mock-api/*)
       └── get_current_time → 通用工具
-  → 引用 + 回复（Markdown）→ 落库 messages / tool_call_logs
+  → 流式回答 + 可点击引用 → 落库 messages / tool_call_logs
 trace_id 贯穿全链路。
 ```
 
@@ -67,13 +67,26 @@ curl http://localhost:8000/health   # {"status":"ok","service":"xiaosu-api"}
 3. 填入 `.env` 的 `DINGTALK_*`
 4. 在群里 @ 机器人提问
 
+## 📱 飞书机器人配置（增强项）
+
+1. 飞书开放平台 → 创建企业自建应用，获取 `App ID` / `App Secret`
+2. 事件订阅 Request URL：`https://<your-domain>/api/im/feishu/callback`
+3. 在 `.env` 配置 `FEISHU_*`，如启用 Encrypt Key，系统会进行 AES 解密与签名校验
+4. 订阅 `im.message.receive_v1`，群聊 @ 或私聊机器人即可复用同一条 Chat/RAG/Agent 主链路
+
+本地 mock webhook 可直接向 `/api/im/feishu/callback` POST 飞书事件 JSON；未配置密钥时开发环境会放行验签并写告警日志。
+
 ## 🧪 自动化测试
 
 ```bash
-cd apps/api && uv run pytest     # 16 条（解析/工具/IM/健康检查）
+cd apps/api && uv run pytest     # 解析/工具/IM/健康检查/审计增强
 ```
 
 不依赖真实 API Key 与数据库（mock LLM + mock embedding）。
+
+## 🧾 日志与审计
+
+日志写入 `logs/`：`app.log` / `error.log` / `llm.log` / `im.log` / `indexing.log` / `tool.log`。工具调用会关联到对应 assistant message，后台日志可追踪平台、用户、触发工具、Token、耗时与错误码。
 
 ## 📋 验收问题自测
 
@@ -88,6 +101,8 @@ cd apps/api && uv run pytest     # 16 条（解析/工具/IM/健康检查）
 | 拒答 | CEO 的家庭住址？ | 隐私拒答 |
 | 拒答 | 2030 年销售目标？ | 无依据拒答 |
 | 鲁棒 | 无效 API Key | 友好兜底，不 500 |
+
+> 真实 LLM/Embedding 与真实 IM 沙箱联调需自行配置 key 后验收；未配置时 mock 流程用于本地完整演示。
 
 ## 📈 Roadmap
 

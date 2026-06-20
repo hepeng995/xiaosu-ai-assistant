@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type DocumentItem } from "@/lib/api";
 
@@ -104,6 +105,9 @@ export default function DocumentsPage() {
               <td className={`p-2 font-medium ${STATUS_COLOR[d.status] ?? ""}`}>{d.status}</td>
               <td className="p-2">v{d.version}</td>
               <td className="p-2">
+                <Link className="mr-3 text-blue-600 hover:underline" href={`/admin/documents/${d.id}`}>
+                  查看
+                </Link>
                 <button
                   className="text-red-600 hover:underline"
                   onClick={() => handleDelete(d.id, d.original_filename)}

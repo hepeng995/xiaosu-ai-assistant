@@ -59,16 +59,31 @@ class Settings(BaseSettings):
     STORAGE_DIR: str = "storage/uploads"
     LOG_DIR: str = "logs"
     UPLOAD_MAX_SIZE_BYTES: int = 10_485_760
+    WEB_BASE_URL: str = "http://localhost:3001"
 
     # ---------- 钉钉机器人 ----------
     DINGTALK_APP_KEY: str = _PLACEHOLDER
     DINGTALK_APP_SECRET: str = _PLACEHOLDER
     DINGTALK_ROBOT_CODE: str = _PLACEHOLDER
     DINGTALK_CALLBACK_TOKEN: str = _PLACEHOLDER
+    # 事件订阅加密回调 AES 密钥（43 字符 base64）；启用加密推送时必填
+    DINGTALK_AES_KEY: str = _PLACEHOLDER
+
+    # ---------- 飞书机器人 ----------
+    FEISHU_APP_ID: str = _PLACEHOLDER
+    FEISHU_APP_SECRET: str = _PLACEHOLDER
+    FEISHU_VERIFICATION_TOKEN: str = _PLACEHOLDER
+    FEISHU_ENCRYPT_KEY: str = _PLACEHOLDER
+    FEISHU_BASE_URL: str = "https://open.feishu.cn/open-apis"
 
     # ---------- IM / 会话 ----------
     IM_DEFAULT_TIMEOUT_SECONDS: int = 45
     CONVERSATION_MAX_TURNS: int = 10
+
+    # ---------- 可观测性（未配置时 noop） ----------
+    LANGFUSE_PUBLIC_KEY: str = _PLACEHOLDER
+    LANGFUSE_SECRET_KEY: str = _PLACEHOLDER
+    LANGFUSE_HOST: str = ""
 
     @property
     def is_dev(self) -> bool:
@@ -78,6 +93,13 @@ class Settings(BaseSettings):
     def is_secret_configured(self, value: str) -> bool:
         """判断敏感配置是否已真正配置（非空且非占位）。"""
         return bool(value) and value != _PLACEHOLDER
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        """Langfuse 是否可用；未配置时所有观测增强保持 noop。"""
+        return self.is_secret_configured(self.LANGFUSE_PUBLIC_KEY) and self.is_secret_configured(
+            self.LANGFUSE_SECRET_KEY
+        )
 
 
 @lru_cache

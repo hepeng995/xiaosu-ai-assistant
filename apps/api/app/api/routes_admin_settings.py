@@ -33,9 +33,21 @@ async def get_settings_status() -> dict:
             "app_secret_configured": settings.is_secret_configured(settings.DINGTALK_APP_SECRET),
             "robot_code_configured": settings.is_secret_configured(settings.DINGTALK_ROBOT_CODE),
         },
+        "feishu": {
+            "app_id_configured": settings.is_secret_configured(settings.FEISHU_APP_ID),
+            "app_secret_configured": settings.is_secret_configured(settings.FEISHU_APP_SECRET),
+            "verification_token_configured": settings.is_secret_configured(
+                settings.FEISHU_VERIFICATION_TOKEN
+            ),
+            "encrypt_key_configured": settings.is_secret_configured(settings.FEISHU_ENCRYPT_KEY),
+        },
         "agent": {
             "max_tool_rounds": settings.MAX_TOOL_ROUNDS,
             "tool_timeout": settings.TOOL_TIMEOUT_SECONDS,
+        },
+        "observability": {
+            "langfuse_enabled": settings.langfuse_enabled,
+            "host_configured": bool(settings.LANGFUSE_HOST),
         },
     }
 

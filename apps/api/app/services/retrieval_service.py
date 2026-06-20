@@ -20,7 +20,7 @@ _VECTOR_SQL = text(
            1 - (c.embedding <=> CAST(:emb AS vector)) AS score
     FROM document_chunks c
     JOIN documents d ON c.document_id = d.id
-    WHERE d.deleted_at IS NULL AND d.status = 'indexed'
+    WHERE d.deleted_at IS NULL AND d.status = 'indexed' AND c.deleted_at IS NULL
     ORDER BY c.embedding <=> CAST(:emb AS vector)
     LIMIT :top_k
     """
@@ -33,7 +33,7 @@ _LIST_SQL = text(
            c.paragraph_index, d.original_filename AS filename
     FROM document_chunks c
     JOIN documents d ON c.document_id = d.id
-    WHERE d.deleted_at IS NULL AND d.status = 'indexed'
+    WHERE d.deleted_at IS NULL AND d.status = 'indexed' AND c.deleted_at IS NULL
     """
 )
 

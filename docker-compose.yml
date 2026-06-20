@@ -43,6 +43,10 @@ services:
       - ./logs:/app/logs
       - ./storage:/app/storage
       - ./data:/app/data
+    # 公共 DNS：规避 Docker Desktop 嵌入式 DNS(127.0.0.11) 在国内网络的间歇性解析失败
+    dns:
+      - 223.5.5.5
+      - 8.8.8.8
     depends_on:
       postgres:
         condition: service_healthy

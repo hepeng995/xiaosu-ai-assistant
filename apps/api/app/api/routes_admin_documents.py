@@ -1,9 +1,10 @@
 """文档管理 API：上传 / 列表 / 删除 / 查看分块 / 重新索引。"""
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile
-from sqlalchemy import delete
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppException, ErrorCode
@@ -64,7 +65,11 @@ async def reindex_document(
     doc = await session.get(Document, document_id)
     if doc is None or doc.deleted_at is not None:
         raise AppException(ErrorCode.DOCUMENT_PARSE_ERROR, "文档不存在或已删除", 404)
-    await session.execute(delete(DocumentChunk).where(DocumentChunk.document_id == document_id))
+    await session.execute(
+        update(DocumentChunk)
+        .where(DocumentChunk.document_id == document_id, DocumentChunk.deleted_at.is_(None))
+        .values(deleted_at=datetime.now(UTC))
+    )
     doc.status = "pending"
     doc.error_message = None
     await session.commit()

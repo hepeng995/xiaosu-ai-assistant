@@ -50,6 +50,9 @@ storage/parsed/*
 !storage/parsed/.gitkeep
 
 # ---------- 编辑器与系统 ----------
+.gstack/
+_deploy_crypto.py
+_test_evt.py
 .idea/
 .vscode/
 *.swp

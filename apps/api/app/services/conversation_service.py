@@ -56,6 +56,19 @@ async def save_message(
     return msg
 
 
+async def update_message(
+    message: Message,
+    session: AsyncSession,
+    **fields: object,
+) -> Message:
+    """更新已保存消息（用于先落 assistant 占位，再回填结果/错误）。"""
+    for key, value in fields.items():
+        setattr(message, key, value)
+    await session.commit()
+    await session.refresh(message)
+    return message
+
+
 async def get_recent_messages(
     conversation_id: uuid.UUID, session: AsyncSession, limit: int | None = None
 ) -> list[Message]:

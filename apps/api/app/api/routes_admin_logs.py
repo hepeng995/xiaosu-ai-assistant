@@ -5,7 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.models import Message
+from app.models import Conversation, Message
 
 router = APIRouter(prefix="/api/admin/messages", tags=["admin-logs"])
 
@@ -15,12 +15,20 @@ async def list_messages(
     session: AsyncSession = Depends(get_db), limit: int = Query(50, le=200)
 ) -> dict:
     """列出最近的对话消息（倒序）。"""
-    result = await session.execute(select(Message).order_by(Message.created_at.desc()).limit(limit))
-    msgs = result.scalars().all()
+    result = await session.execute(
+        select(Message, Conversation)
+        .join(Conversation, Message.conversation_id == Conversation.id)
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
     items = [
         {
             "id": str(m.id),
             "conversation_id": str(m.conversation_id),
+            "platform": c.platform,
+            "user_id": c.user_id,
+            "user_name": c.user_name,
+            "conversation_key": c.conversation_key,
             "role": m.role,
             "content": m.content,
             "references": m.references,
@@ -34,6 +42,6 @@ async def list_messages(
             "latency_ms": m.latency_ms,
             "created_at": m.created_at.isoformat() if m.created_at else None,
         }
-        for m in msgs
+        for m, c in result.all()
     ]
     return {"items": items, "total": len(items)}

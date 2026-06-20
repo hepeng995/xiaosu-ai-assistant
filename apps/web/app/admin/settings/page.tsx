@@ -18,14 +18,20 @@ export default function SettingsPage() {
       const emb = data.embedding as Record<string, unknown>;
       const rag = data.rag as Record<string, unknown>;
       const dt = data.dingtalk as Record<string, unknown>;
+      const fs = data.feishu as Record<string, unknown>;
       const ag = data.agent as Record<string, unknown>;
+      const obs = data.observability as Record<string, unknown>;
       setGroups([
         {
           title: "LLM 模型",
           items: [
             { label: "Provider", value: String(llm.provider) },
             { label: "模型", value: String(llm.model) },
-            { label: "API Key", value: llm.api_key_configured ? "已配置" : "未配置", ok: Boolean(llm.api_key_configured) },
+            {
+              label: "API Key",
+              value: llm.api_key_configured ? "已配置" : "未配置",
+              ok: Boolean(llm.api_key_configured),
+            },
           ],
         },
         {
@@ -33,7 +39,11 @@ export default function SettingsPage() {
           items: [
             { label: "模型", value: String(emb.model) },
             { label: "维度", value: String(emb.dimension) },
-            { label: "API Key", value: emb.api_key_configured ? "已配置" : "未配置", ok: Boolean(emb.api_key_configured) },
+            {
+              label: "API Key",
+              value: emb.api_key_configured ? "已配置" : "未配置",
+              ok: Boolean(emb.api_key_configured),
+            },
           ],
         },
         {
@@ -47,9 +57,46 @@ export default function SettingsPage() {
         {
           title: "钉钉 IM",
           items: [
-            { label: "App Key", value: dt.app_key_configured ? "已配置" : "未配置", ok: Boolean(dt.app_key_configured) },
-            { label: "App Secret", value: dt.app_secret_configured ? "已配置" : "未配置", ok: Boolean(dt.app_secret_configured) },
-            { label: "Robot Code", value: dt.robot_code_configured ? "已配置" : "未配置", ok: Boolean(dt.robot_code_configured) },
+            {
+              label: "App Key",
+              value: dt.app_key_configured ? "已配置" : "未配置",
+              ok: Boolean(dt.app_key_configured),
+            },
+            {
+              label: "App Secret",
+              value: dt.app_secret_configured ? "已配置" : "未配置",
+              ok: Boolean(dt.app_secret_configured),
+            },
+            {
+              label: "Robot Code",
+              value: dt.robot_code_configured ? "已配置" : "未配置",
+              ok: Boolean(dt.robot_code_configured),
+            },
+          ],
+        },
+        {
+          title: "飞书 IM",
+          items: [
+            {
+              label: "App ID",
+              value: fs.app_id_configured ? "已配置" : "未配置",
+              ok: Boolean(fs.app_id_configured),
+            },
+            {
+              label: "App Secret",
+              value: fs.app_secret_configured ? "已配置" : "未配置",
+              ok: Boolean(fs.app_secret_configured),
+            },
+            {
+              label: "Verification Token",
+              value: fs.verification_token_configured ? "已配置" : "未配置",
+              ok: Boolean(fs.verification_token_configured),
+            },
+            {
+              label: "Encrypt Key",
+              value: fs.encrypt_key_configured ? "已配置" : "未配置",
+              ok: Boolean(fs.encrypt_key_configured),
+            },
           ],
         },
         {
@@ -57,6 +104,21 @@ export default function SettingsPage() {
           items: [
             { label: "最大工具轮数", value: String(ag.max_tool_rounds) },
             { label: "工具超时", value: `${ag.tool_timeout}s` },
+          ],
+        },
+        {
+          title: "可观测性",
+          items: [
+            {
+              label: "Langfuse",
+              value: obs.langfuse_enabled ? "已启用" : "未配置",
+              ok: Boolean(obs.langfuse_enabled),
+            },
+            {
+              label: "Host",
+              value: obs.host_configured ? "已配置" : "未配置",
+              ok: Boolean(obs.host_configured),
+            },
           ],
         },
       ]);
@@ -68,7 +130,10 @@ export default function SettingsPage() {
     <div>
       <h1 className="mb-4 text-xl font-bold">系统设置</h1>
       <p className="mb-4 text-sm text-gray-600">
-        数据库连接：<span className={health === "ok" ? "text-green-600" : "text-red-600"}>{health || "检测中"}</span>
+        数据库连接：
+        <span className={health === "ok" ? "text-green-600" : "text-red-600"}>
+          {health || "检测中"}
+        </span>
       </p>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {groups.map((g) => (
@@ -78,7 +143,9 @@ export default function SettingsPage() {
               {g.items.map((it) => (
                 <div key={it.label} className="flex justify-between">
                   <dt className="text-gray-500">{it.label}</dt>
-                  <dd className={it.ok === false ? "text-red-500" : it.ok ? "text-green-600" : ""}>
+                  <dd
+                    className={it.ok === false ? "text-red-500" : it.ok ? "text-green-600" : ""}
+                  >
                     {it.value}
                   </dd>
                 </div>
