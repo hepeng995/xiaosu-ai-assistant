@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # ---------- RAG ----------
     RAG_TOP_K: int = 5
-    RAG_SCORE_THRESHOLD: float = 0.72
+    RAG_SCORE_THRESHOLD: float = 0.65
     RAG_CHUNK_SIZE: int = 800
     RAG_CHUNK_OVERLAP: int = 120
 
