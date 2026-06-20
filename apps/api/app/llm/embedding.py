@@ -11,6 +11,7 @@ import httpx
 from loguru import logger
 
 from app.core.config import settings
+from app.core.observability import llm_span
 
 # 单次 embedding 请求的文本条数上限：部分 OpenAI 兼容接口（如阿里 dashscope
 # text-embedding-v4）单次 input 上限 10 条，超出返回 400，故按此分批。
@@ -51,28 +52,32 @@ class EmbeddingService:
         return result[0]
 
     async def _embed_via_api(self, texts: list[str]) -> list[list[float]]:
-        url = f"{self._base_url.rstrip('/')}/embeddings"
-        payload = {"model": self._model, "input": texts, "dimensions": self._dim}
-        headers = {"Authorization": f"Bearer {self._api_key}"}
-        last_exc: Exception | None = None
-        emb_logger = logger.bind(module="llm", event="embedding", model=self._model)
-        for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
-            try:
-                emb_logger.info("embedding 请求开始 attempt={} count={}", attempt, len(texts))
-                resp = await self._client.post(url, json=payload, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                emb_logger.info("embedding 请求成功 count={}", len(texts))
-                return [item["embedding"] for item in data["data"]]
-            except Exception as exc:
-                last_exc = exc
-                logger.warning(
-                    "embedding 调用失败 attempt={}/{} err={}",
-                    attempt,
-                    settings.LLM_MAX_RETRIES + 1,
-                    exc,
-                )
-        raise RuntimeError(f"embedding 调用失败: {last_exc}")
+        with llm_span("embedding", model=self._model) as state:
+            url = f"{self._base_url.rstrip('/')}/embeddings"
+            payload = {"model": self._model, "input": texts, "dimensions": self._dim}
+            headers = {"Authorization": f"Bearer {self._api_key}"}
+            last_exc: Exception | None = None
+            emb_logger = logger.bind(module="llm", event="embedding", model=self._model)
+            for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
+                try:
+                    emb_logger.info("embedding 请求开始 attempt={} count={}", attempt, len(texts))
+                    resp = await self._client.post(url, json=payload, headers=headers)
+                    resp.raise_for_status()
+                    data = resp.json()
+                    emb_logger.info("embedding 请求成功 count={}", len(texts))
+                    result = [item["embedding"] for item in data["data"]]
+                    state["output"] = f"{len(result)} vectors"
+                    state["usage"] = {"input": len(texts), "unit": "CHARS"}
+                    return result
+                except Exception as exc:
+                    last_exc = exc
+                    logger.warning(
+                        "embedding 调用失败 attempt={}/{} err={}",
+                        attempt,
+                        settings.LLM_MAX_RETRIES + 1,
+                        exc,
+                    )
+            raise RuntimeError(f"embedding 调用失败: {last_exc}")
 
     def _mock_vector(self, text: str) -> list[float]:
         """基于文本 SHA256 生成确定性伪向量（归一化，仅流程验证）。"""

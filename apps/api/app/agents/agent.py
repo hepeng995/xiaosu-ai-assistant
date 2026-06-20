@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.tool_registry import default_tools, execute_tool, find_tool, tools_schema
 from app.core.config import settings
-from app.llm.openai_compatible import llm_service
+from app.llm.base import llm_service
 
 
 @dataclass

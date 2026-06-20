@@ -1,7 +1,8 @@
-"""增强项回归测试：软删除、审计关联、错误码与 SSE 降级。"""
+"""增强项回归测试：软删除、审计、错误码、SSE 降级、成本估算、可观测性 noop。"""
 
 import asyncio
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
 
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 from app.agents import tool_registry
 from app.api import routes_chat
 from app.api.routes_admin_logs import list_messages
+from app.core import observability, pricing
 from app.core.errors import ErrorCode
 from app.main import app
 from app.services import chat_service, retrieval_service
@@ -324,3 +326,47 @@ async def test_internal_api_does_not_retry_404(monkeypatch: pytest.MonkeyPatch) 
 
     assert len(calls) == 1
     assert response.status_code == 404
+
+
+# ---------- 波次 B：LLM 成本估算 ----------
+
+
+def test_estimate_cost_zero_when_unconfigured() -> None:
+    """单价默认 0 时返回 0（降级语义，不破坏无单价流程）。"""
+    assert pricing.estimate_cost(1000, 500) == Decimal("0.000000")
+    assert pricing.estimate_cost(0, 0) == Decimal("0.000000")
+
+
+def test_estimate_cost_computes_with_prices(monkeypatch: pytest.MonkeyPatch) -> None:
+    """配置单价后按 input/output 分别估算。"""
+    monkeypatch.setattr(pricing.settings, "LLM_PRICE_INPUT_PER_M", 5.0)
+    monkeypatch.setattr(pricing.settings, "LLM_PRICE_OUTPUT_PER_M", 15.0)
+    assert pricing.estimate_cost(1000, 500) == Decimal("0.012500")
+
+
+def test_estimate_cost_negative_inputs_guarded(monkeypatch: pytest.MonkeyPatch) -> None:
+    """负数或空输入应被钳制为 0，不产生负成本。"""
+    monkeypatch.setattr(pricing.settings, "LLM_PRICE_INPUT_PER_M", 10.0)
+    assert pricing.estimate_cost(-100, None) == Decimal("0.000000")  # type: ignore[arg-type]
+
+
+# ---------- 波次 C：可观测性 noop 降级 ----------
+
+
+def test_observability_client_none_when_unconfigured() -> None:
+    """未配置 LANGFUSE_* 时 client 为 None（noop）。"""
+    observability._reset_for_test()
+    assert observability.get_client() is None
+
+
+def test_observability_llm_span_noop_when_unconfigured() -> None:
+    """未配置时 llm_span 为 noop，回填 state 不报错。"""
+    observability._reset_for_test()
+    with observability.llm_span("test_span", model="gpt-4o-mini") as state:
+        state["output"] = "hello"
+        state["usage"] = {"input": 1, "output": 1, "unit": "TOKENS"}
+
+
+def test_observability_trace_id_var_default() -> None:
+    """trace_id_var 默认值为占位。"""
+    assert observability.trace_id_var.get() == "-"

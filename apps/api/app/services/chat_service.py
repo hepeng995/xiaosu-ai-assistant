@@ -10,7 +10,8 @@ from app.agents.agent import prepare_response
 from app.agents.agent import run as agent_run
 from app.agents.prompts import REFUSAL_NO_RESULT, REFUSAL_PRIVACY, SENSITIVE_KEYWORDS
 from app.core.errors import ErrorCode
-from app.llm.openai_compatible import llm_service
+from app.core.pricing import estimate_cost
+from app.llm.base import llm_service
 from app.services.conversation_service import (
     get_or_create_conversation,
     get_recent_messages,
@@ -142,6 +143,9 @@ async def chat(
         prompt_tokens=result.usage.get("prompt_tokens", 0),
         completion_tokens=result.usage.get("completion_tokens", 0),
         total_tokens=result.usage.get("total_tokens", 0),
+        estimated_cost=estimate_cost(
+            result.usage.get("prompt_tokens", 0), result.usage.get("completion_tokens", 0)
+        ),
         success=not refused,
         error_code=error_code,
         error_message=error_message,
@@ -271,6 +275,9 @@ async def stream_chat(
         prompt_tokens=prepared.usage.get("prompt_tokens", 0),
         completion_tokens=prepared.usage.get("completion_tokens", 0),
         total_tokens=prepared.usage.get("total_tokens", 0),
+        estimated_cost=estimate_cost(
+            prepared.usage.get("prompt_tokens", 0), prepared.usage.get("completion_tokens", 0)
+        ),
         success=success,
         error_code=error_code,
         error_message=error_message,

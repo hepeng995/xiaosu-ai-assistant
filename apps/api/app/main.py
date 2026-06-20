@@ -19,6 +19,7 @@ from app.api.routes_mock_api import router as mock_api_router
 from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import setup_logging
+from app.core.observability import trace_id_var
 
 
 @asynccontextmanager
@@ -56,6 +57,7 @@ def create_app() -> FastAPI:
         trace_id = request.headers.get("x-trace-id") or f"trace_{uuid.uuid4().hex[:16]}"
         request.state.trace_id = trace_id
         with logger.contextualize(trace_id=trace_id):
+            trace_id_var.set(trace_id)
             logger.info("请求开始 {} {}", request.method, request.url.path)
             response = await call_next(request)
             response.headers["x-trace-id"] = trace_id

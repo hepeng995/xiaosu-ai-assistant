@@ -20,6 +20,7 @@ dependencies = [
     "python-docx>=1.1.0",
     "python-multipart>=0.0.18",
     "cryptography>=43.0.0",
+    "langfuse>=4.9.1",
 ]
 
 # 运行时依赖：FastAPI 服务 + 数据库（SQLAlchemy/Alembic/pgvector）

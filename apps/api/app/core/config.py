@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "gpt-4o-mini"
     LLM_TIMEOUT_SECONDS: int = 30
     LLM_MAX_RETRIES: int = 2
+    # 每百万 token 估算单价（美元），默认 0 = 不估算；可在 .env 按实际模型填写
+    LLM_PRICE_INPUT_PER_M: float = 0.0
+    LLM_PRICE_OUTPUT_PER_M: float = 0.0
+
+    # ---------- Anthropic（可选第二供应商，LLM_PROVIDER=anthropic 时启用）----------
+    ANTHROPIC_API_KEY: str = _PLACEHOLDER
+    ANTHROPIC_BASE_URL: str = "https://api.anthropic.com"
+    ANTHROPIC_MODEL: str = "claude-3-5-haiku-latest"
 
     # ---------- Embedding ----------
     EMBEDDING_PROVIDER: str = "openai_compatible"

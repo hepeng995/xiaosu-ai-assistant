@@ -14,6 +14,8 @@ import httpx
 from loguru import logger
 
 from app.core.config import settings
+from app.core.observability import llm_span
+from app.services import setting_service
 
 
 @dataclass
@@ -33,6 +35,11 @@ class LLMService:
     @property
     def use_mock(self) -> bool:
         return not settings.is_secret_configured(self._api_key)
+
+    async def _effective_model(self) -> str:
+        """真实请求使用的模型：运行时激活模型覆盖默认（未设置则回退环境变量值）。"""
+        active = await setting_service.get_active_model()
+        return active or self._model
 
     async def chat(self, messages: list[dict], temperature: float = 0.3) -> LLMResponse:
         if self.use_mock:
@@ -57,15 +64,16 @@ class LLMService:
                 yield content[i : i + 6]
             return
 
+        effective_model = await self._effective_model()
         url = f"{self._base_url.rstrip('/')}/chat/completions"
         payload = {
-            "model": self._model,
+            "model": effective_model,
             "messages": messages,
             "temperature": temperature,
             "stream": True,
         }
         headers = {"Authorization": f"Bearer {self._api_key}"}
-        llm_logger = logger.bind(module="llm", event="chat_stream", model=self._model)
+        llm_logger = logger.bind(module="llm", event="chat_stream", model=effective_model)
         llm_logger.info("LLM 流式请求开始 messages={}", len(messages))
         async with self._client.stream("POST", url, json=payload, headers=headers) as resp:
             if resp.status_code in (401, 403):
@@ -88,26 +96,51 @@ class LLMService:
         llm_logger.info("LLM 流式请求结束")
 
     async def _chat_via_api(self, messages: list[dict], temperature: float) -> LLMResponse:
+        effective_model = await self._effective_model()
         url = f"{self._base_url.rstrip('/')}/chat/completions"
-        payload = {"model": self._model, "messages": messages, "temperature": temperature}
-        return self._parse_chat_response(await self._post(url, payload))
+        payload = {
+            "model": effective_model,
+            "messages": messages,
+            "temperature": temperature,
+        }
+        with llm_span("llm_chat", model=effective_model) as state:
+            resp = self._parse_chat_response(await self._post(url, payload))
+            state["output"] = resp.content
+            state["usage"] = {
+                "input": resp.prompt_tokens,
+                "output": resp.completion_tokens,
+                "unit": "TOKENS",
+            }
+            return resp
 
     async def _chat_with_tools_api(
         self, messages: list[dict], tools_schema: list[dict]
     ) -> tuple[str, list[dict], dict]:
+        effective_model = await self._effective_model()
         url = f"{self._base_url.rstrip('/')}/chat/completions"
-        payload = {"model": self._model, "messages": messages, "tools": tools_schema}
-        resp_data = await self._post(url, payload)
-        msg = resp_data["choices"][0]["message"]
-        content = msg.get("content") or ""
-        tool_calls = msg.get("tool_calls") or []
-        usage = resp_data.get("usage", {})
-        return content, tool_calls, usage
+        payload = {
+            "model": effective_model,
+            "messages": messages,
+            "tools": tools_schema,
+        }
+        with llm_span("llm_chat_with_tools", model=effective_model) as state:
+            resp_data = await self._post(url, payload)
+            msg = resp_data["choices"][0]["message"]
+            content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls") or []
+            usage = resp_data.get("usage", {})
+            state["output"] = content
+            state["usage"] = {
+                "input": usage.get("prompt_tokens", 0),
+                "output": usage.get("completion_tokens", 0),
+                "unit": "TOKENS",
+            }
+            return content, tool_calls, usage
 
     async def _post(self, url: str, payload: dict) -> dict:
         headers = {"Authorization": f"Bearer {self._api_key}"}
         last_exc: Exception | None = None
-        llm_logger = logger.bind(module="llm", event="chat", model=self._model)
+        llm_logger = logger.bind(module="llm", event="chat", model=payload.get("model"))
         for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
             try:
                 llm_logger.info(
