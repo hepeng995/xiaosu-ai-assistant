@@ -2,6 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { api, type MessageItem } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export default function LogsPage() {
   const [items, setItems] = useState<MessageItem[]>([]);
@@ -32,56 +43,73 @@ export default function LogsPage() {
   }, []);
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">对话日志</h1>
-        <button onClick={refresh} className="text-sm text-blue-600 hover:underline">
+        <Button variant="outline" size="sm" onClick={refresh}>
           {loading ? "刷新中…" : "刷新"}
-        </button>
+        </Button>
       </div>
-      <table className="w-full border-collapse bg-white text-sm">
-        <thead>
-          <tr className="border-b text-left text-gray-500">
-            <th className="p-2">时间</th>
-            <th className="p-2">平台/用户</th>
-            <th className="p-2">角色</th>
-            <th className="p-2">内容</th>
-            <th className="p-2">工具</th>
-            <th className="p-2">Token</th>
-            <th className="p-2">耗时</th>
-            <th className="p-2">状态</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((m) => {
-            const tools = (m.tool_calls as { name: string }[] | null)?.map((t) => t.name).join(",") ?? "";
-            return (
-              <tr key={m.id} className="border-b align-top">
-                <td className="p-2 whitespace-nowrap text-gray-500">
-                  {m.created_at?.slice(5, 16)}
-                </td>
-                <td className="p-2">
-                  <div className="font-medium text-gray-700">{m.platform}</div>
-                  <div className="text-xs text-gray-500">{m.user_name || m.user_id}</div>
-                </td>
-                <td className="p-2">{m.role}</td>
-                <td className="p-2 max-w-md whitespace-pre-wrap break-all">{m.content}</td>
-                <td className="p-2 text-blue-600">{tools}</td>
-                <td className="p-2">{m.total_tokens}</td>
-                <td className="p-2">{m.latency_ms ? `${m.latency_ms}ms` : "-"}</td>
-                <td className="p-2">{m.success ? "✅" : "❌"}</td>
-              </tr>
-            );
-          })}
-          {items.length === 0 && (
-            <tr>
-              <td colSpan={8} className="p-8 text-center text-gray-400">
-                暂无对话记录
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      <Card>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>时间</TableHead>
+                <TableHead>平台/用户</TableHead>
+                <TableHead>角色</TableHead>
+                <TableHead>内容</TableHead>
+                <TableHead>工具</TableHead>
+                <TableHead>Token</TableHead>
+                <TableHead>成本</TableHead>
+                <TableHead>耗时</TableHead>
+                <TableHead>状态</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((m) => {
+                const tools =
+                  (m.tool_calls as { name: string }[] | null)?.map((t) => t.name).join(",") ?? "";
+                return (
+                  <TableRow key={m.id}>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">
+                      {m.created_at?.slice(5, 16)}
+                    </TableCell>
+                    <TableCell>
+                      <div className="font-medium">{m.platform}</div>
+                      <div className="text-xs text-muted-foreground">{m.user_name || m.user_id}</div>
+                    </TableCell>
+                    <TableCell>{m.role}</TableCell>
+                    <TableCell className="max-w-md whitespace-pre-wrap break-all">
+                      {m.content}
+                    </TableCell>
+                    <TableCell className="text-primary">{tools}</TableCell>
+                    <TableCell>{m.total_tokens}</TableCell>
+                    <TableCell>
+                      {m.estimated_cost && m.estimated_cost > 0
+                        ? `$${m.estimated_cost.toFixed(4)}`
+                        : "-"}
+                    </TableCell>
+                    <TableCell>{m.latency_ms ? `${m.latency_ms}ms` : "-"}</TableCell>
+                    <TableCell>
+                      <Badge variant={m.success ? "secondary" : "destructive"}>
+                        {m.success ? "成功" : "失败"}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {items.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="p-8 text-center text-muted-foreground">
+                    暂无对话记录
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }

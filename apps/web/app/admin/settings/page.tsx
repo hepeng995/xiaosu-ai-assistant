@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 
 interface SettingGroup {
   title: string;
@@ -11,6 +14,11 @@ interface SettingGroup {
 export default function SettingsPage() {
   const [groups, setGroups] = useState<SettingGroup[]>([]);
   const [health, setHealth] = useState<string>("");
+  const [modelActive, setModelActive] = useState<string | null>(null);
+  const [modelDefault, setModelDefault] = useState<string>("");
+  const [modelInput, setModelInput] = useState("");
+  const [modelSaving, setModelSaving] = useState(false);
+  const [modelMsg, setModelMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     api.settings.get().then((data) => {
@@ -124,34 +132,99 @@ export default function SettingsPage() {
       ]);
     });
     api.settings.health().then((h) => setHealth(h.database));
+    api.settings
+      .getModel()
+      .then((d) => {
+        setModelActive(d.active_model);
+        setModelDefault(d.default_model);
+        setModelInput(d.active_model ?? "");
+      })
+      .catch(() => {
+        // 忽略模型读取错误
+      });
   }, []);
 
+  const saveModel = async () => {
+    if (!modelInput.trim()) return;
+    setModelSaving(true);
+    setModelMsg(null);
+    try {
+      const d = await api.settings.putModel(modelInput.trim());
+      setModelActive(d.active_model);
+      setModelMsg({ ok: true, text: `已切换为 ${d.active_model}，新对话生效` });
+    } catch {
+      setModelMsg({ ok: false, text: "保存失败，请检查模型名是否合法" });
+    } finally {
+      setModelSaving(false);
+    }
+  };
+
   return (
-    <div>
-      <h1 className="mb-4 text-xl font-bold">系统设置</h1>
-      <p className="mb-4 text-sm text-gray-600">
+    <div className="space-y-4">
+      <h1 className="text-xl font-bold">系统设置</h1>
+      <p className="text-sm text-muted-foreground">
         数据库连接：
-        <span className={health === "ok" ? "text-green-600" : "text-red-600"}>
+        <span className={health === "ok" ? "text-green-600" : "text-destructive"}>
           {health || "检测中"}
         </span>
       </p>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">运行时模型（切换后新对话生效）</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            当前：
+            <span className="ml-1 font-medium text-foreground">
+              {modelActive ?? `使用默认（${modelDefault || "—"}）`}
+            </span>
+          </p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="如 gpt-4o-mini / deepseek-chat"
+              value={modelInput}
+              onChange={(e) => setModelInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && saveModel()}
+            />
+            <Button onClick={saveModel} disabled={modelSaving || !modelInput.trim()}>
+              {modelSaving ? "保存中…" : "保存"}
+            </Button>
+          </div>
+          {modelMsg && (
+            <p className={`text-sm ${modelMsg.ok ? "text-green-600" : "text-destructive"}`}>
+              {modelMsg.text}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground">
+            仅切换模型名；API Key / Base URL 仍走环境变量。未配置 key 时对话走 mock。
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {groups.map((g) => (
-          <div key={g.title} className="rounded border bg-white p-4">
-            <h2 className="mb-3 font-semibold text-blue-700">{g.title}</h2>
-            <dl className="space-y-1 text-sm">
-              {g.items.map((it) => (
-                <div key={it.label} className="flex justify-between">
-                  <dt className="text-gray-500">{it.label}</dt>
-                  <dd
-                    className={it.ok === false ? "text-red-500" : it.ok ? "text-green-600" : ""}
-                  >
-                    {it.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </div>
+          <Card key={g.title}>
+            <CardHeader>
+              <CardTitle className="text-base text-primary">{g.title}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="space-y-1 text-sm">
+                {g.items.map((it) => (
+                  <div key={it.label} className="flex justify-between">
+                    <dt className="text-muted-foreground">{it.label}</dt>
+                    <dd
+                      className={
+                        it.ok === false ? "text-destructive" : it.ok ? "text-green-600" : ""
+                      }
+                    >
+                      {it.value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
         ))}
       </div>
     </div>

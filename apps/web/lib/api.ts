@@ -40,6 +40,7 @@ export interface MessageItem {
   prompt_tokens: number;
   completion_tokens: number;
   total_tokens: number;
+  estimated_cost: number;
   success: boolean;
   error_code: string | null;
   latency_ms: number | null;
@@ -122,6 +123,15 @@ export const api = {
   settings: {
     get: () => request<Record<string, unknown>>("/api/admin/settings"),
     health: () => request<{ database: string; service: string }>("/api/admin/settings/health"),
+    getModel: () =>
+      request<{ active_model: string | null; default_model: string }>(
+        "/api/admin/settings/model",
+      ),
+    putModel: (model: string) =>
+      request<{ active_model: string; default_model: string }>(
+        "/api/admin/settings/model",
+        { method: "PUT", body: JSON.stringify({ model }) },
+      ),
   },
 
   chat: {

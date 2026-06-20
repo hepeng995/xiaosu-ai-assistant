@@ -3,13 +3,31 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, type DocumentItem } from "@/lib/api";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
-const STATUS_COLOR: Record<string, string> = {
-  indexed: "text-green-600",
-  pending: "text-yellow-600",
-  indexing: "text-blue-600",
-  failed: "text-red-600",
-  deleted: "text-gray-400",
+const STATUS_CLASS: Record<string, string> = {
+  indexed: "border-green-200 text-green-700",
+  pending: "border-yellow-200 text-yellow-700",
+  indexing: "border-blue-200 text-blue-700",
+  failed: "border-red-200 text-red-700",
+  deleted: "border-gray-200 text-gray-400",
 };
 
 export default function DocumentsPage() {
@@ -70,10 +88,10 @@ export default function DocumentsPage() {
   };
 
   return (
-    <div>
-      <div className="mb-4 flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">文档管理</h1>
-        <label className="cursor-pointer rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700">
+        <label className={cn(buttonVariants({ variant: "default" }), "cursor-pointer")}>
           + 上传文档
           <input
             ref={fileRef}
@@ -84,48 +102,64 @@ export default function DocumentsPage() {
           />
         </label>
       </div>
-      {msg && <p className="mb-3 text-sm text-gray-600">{msg}</p>}
-      <table className="w-full border-collapse bg-white text-sm">
-        <thead>
-          <tr className="border-b text-left text-gray-500">
-            <th className="p-2">文件名</th>
-            <th className="p-2">类型</th>
-            <th className="p-2">大小</th>
-            <th className="p-2">状态</th>
-            <th className="p-2">版本</th>
-            <th className="p-2">操作</th>
-          </tr>
-        </thead>
-        <tbody>
-          {docs.map((d) => (
-            <tr key={d.id} className="border-b">
-              <td className="p-2">{d.original_filename}</td>
-              <td className="p-2">{d.file_type}</td>
-              <td className="p-2">{(d.file_size / 1024).toFixed(1)} KB</td>
-              <td className={`p-2 font-medium ${STATUS_COLOR[d.status] ?? ""}`}>{d.status}</td>
-              <td className="p-2">v{d.version}</td>
-              <td className="p-2">
-                <Link className="mr-3 text-blue-600 hover:underline" href={`/admin/documents/${d.id}`}>
-                  查看
-                </Link>
-                <button
-                  className="text-red-600 hover:underline"
-                  onClick={() => handleDelete(d.id, d.original_filename)}
-                >
-                  删除
-                </button>
-              </td>
-            </tr>
-          ))}
-          {docs.length === 0 && !loading && (
-            <tr>
-              <td colSpan={6} className="p-8 text-center text-gray-400">
-                暂无文档
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+      {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
+      <Card>
+        <CardHeader>
+          <CardTitle>已上传文档</CardTitle>
+          <CardDescription>支持 md / pdf / docx / txt；同名上传自动替换（version+1）</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>文件名</TableHead>
+                <TableHead>类型</TableHead>
+                <TableHead>大小</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>版本</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {docs.map((d) => (
+                <TableRow key={d.id}>
+                  <TableCell>{d.original_filename}</TableCell>
+                  <TableCell>{d.file_type}</TableCell>
+                  <TableCell>{(d.file_size / 1024).toFixed(1)} KB</TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={cn(STATUS_CLASS[d.status])}>
+                      {d.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>v{d.version}</TableCell>
+                  <TableCell className="space-x-3 whitespace-nowrap">
+                    <Link
+                      className="text-primary hover:underline"
+                      href={`/admin/documents/${d.id}`}
+                    >
+                      查看
+                    </Link>
+                    <Button
+                      variant="link"
+                      className="h-auto p-0 text-destructive hover:no-underline"
+                      onClick={() => handleDelete(d.id, d.original_filename)}
+                    >
+                      删除
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {docs.length === 0 && !loading && (
+                <TableRow>
+                  <TableCell colSpan={6} className="p-8 text-center text-muted-foreground">
+                    暂无文档
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
     </div>
   );
 }
