@@ -12,6 +12,10 @@ from loguru import logger
 
 from app.core.config import settings
 
+# 单次 embedding 请求的文本条数上限：部分 OpenAI 兼容接口（如阿里 dashscope
+# text-embedding-v4）单次 input 上限 10 条，超出返回 400，故按此分批。
+EMBEDDING_BATCH_SIZE = 10
+
 
 class EmbeddingService:
     """文本向量化服务（批量 + 单条）。"""
@@ -29,13 +33,17 @@ class EmbeddingService:
         return not settings.is_secret_configured(self._api_key)
 
     async def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        """批量生成 embedding。"""
+        """批量生成 embedding（自动分批，避免超过 API 单次批量上限）。"""
         if not texts:
             return []
         if self.use_mock:
             logger.warning("EMBEDDING_API_KEY 未配置，使用 mock 向量（仅流程验证，非真实语义）")
             return [self._mock_vector(t) for t in texts]
-        return await self._embed_via_api(texts)
+        # 分批请求，规避部分接口（如 dashscope text-embedding-v4）单次 input 条数上限
+        result: list[list[float]] = []
+        for i in range(0, len(texts), EMBEDDING_BATCH_SIZE):
+            result.extend(await self._embed_via_api(texts[i : i + EMBEDDING_BATCH_SIZE]))
+        return result
 
     async def embed_query(self, text: str) -> list[float]:
         """单条查询向量。"""
