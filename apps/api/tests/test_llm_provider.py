@@ -93,3 +93,66 @@ def test_anthropic_parse_content_to_openai_tool_calls() -> None:
     assert text == "查询结果："
     assert calls[0]["function"]["name"] == "get_orders"
     assert json.loads(calls[0]["function"]["arguments"]) == {"limit": 5}
+
+
+@pytest.mark.asyncio
+async def test_anthropic_post_messages_retries_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Anthropic 非流式请求遇到 5xx 应按 LLM 策略重试。"""
+    monkeypatch.setattr(settings, "LLM_MAX_RETRIES", 1)
+    provider = AnthropicProvider()
+
+    class FakeResponse:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError("server error")
+
+        def json(self) -> dict:
+            return {"content": [{"type": "text", "text": "ok"}], "usage": {}}
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def post(self, *_args: object, **_kwargs: object) -> FakeResponse:
+            self.calls += 1
+            return FakeResponse(500 if self.calls == 1 else 200)
+
+    fake_client = FakeClient()
+    provider._client = fake_client  # type: ignore[assignment]
+
+    data = await provider._post_messages(
+        "http://anthropic.test", {"model": "m", "messages": []}, {}
+    )
+
+    assert data["content"][0]["text"] == "ok"
+    assert fake_client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_anthropic_post_messages_auth_error_no_retry() -> None:
+    """Anthropic 401/403 应直接抛 LLM_AUTH_ERROR，不消耗重试次数。"""
+    provider = AnthropicProvider()
+
+    class FakeResponse:
+        status_code = 401
+
+        def raise_for_status(self) -> None:
+            raise AssertionError("认证错误不应进入 raise_for_status")
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def post(self, *_args: object, **_kwargs: object) -> FakeResponse:
+            self.calls += 1
+            return FakeResponse()
+
+    fake_client = FakeClient()
+    provider._client = fake_client  # type: ignore[assignment]
+
+    with pytest.raises(RuntimeError, match="LLM_AUTH_ERROR"):
+        await provider._post_messages("http://anthropic.test", {"model": "m", "messages": []}, {})
+    assert fake_client.calls == 1

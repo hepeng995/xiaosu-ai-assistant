@@ -69,10 +69,16 @@ export default function DocumentsPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setMsg(`上传中: ${file.name}`);
+    setMsg(`上传中: ${file.name}，正在等待索引完成`);
     try {
-      await api.documents.upload(file);
-      setMsg(`已上传: ${file.name}，正在索引`);
+      const doc = await api.documents.upload(file, true);
+      if (doc.status === "indexed") {
+        setMsg(`已索引: ${file.name}，现在可以在 IM 中提问`);
+      } else if (doc.status === "failed") {
+        setMsg(`索引失败: ${doc.error_message ?? file.name}`);
+      } else {
+        setMsg(`已上传: ${file.name}，当前状态 ${doc.status}`);
+      }
       if (fileRef.current) fileRef.current.value = "";
       refresh();
     } catch (err) {

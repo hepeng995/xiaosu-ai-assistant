@@ -70,11 +70,7 @@ class AnthropicProvider:
             "content-type": "application/json",
         }
         with llm_span("llm_chat_with_tools", model=effective_model) as state:
-            resp = await self._client.post(url, json=payload, headers=headers)
-            if resp.status_code in (401, 403):
-                raise RuntimeError("LLM_AUTH_ERROR")
-            resp.raise_for_status()
-            data = resp.json()
+            data = await self._post_messages(url, payload, headers)
             content, tool_calls = self._parse_content(data)
             usage_in = data.get("usage", {})
             usage = {
@@ -90,6 +86,44 @@ class AnthropicProvider:
                 "unit": "TOKENS",
             }
             return content, tool_calls, usage
+
+    async def _post_messages(self, url: str, payload: dict, headers: dict) -> dict:
+        """调用 Anthropic messages API；认证错误不重试，其他异常按 LLM 策略重试。"""
+        last_exc: Exception | None = None
+        effective_model = payload.get("model", self._model)
+        llm_logger = logger.bind(module="llm", event="anthropic_chat", model=effective_model)
+        for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
+            try:
+                llm_logger.info(
+                    "Anthropic 请求开始 attempt={} messages={}",
+                    attempt,
+                    len(payload.get("messages", [])),
+                )
+                resp = await self._client.post(url, json=payload, headers=headers)
+                if resp.status_code in (401, 403):
+                    raise RuntimeError("LLM_AUTH_ERROR")
+                resp.raise_for_status()
+                llm_logger.info("Anthropic 请求成功 status={}", resp.status_code)
+                return resp.json()
+            except RuntimeError as exc:
+                if str(exc) == "LLM_AUTH_ERROR":
+                    raise
+                last_exc = exc
+                logger.warning(
+                    "Anthropic 调用失败 attempt={}/{} err={}",
+                    attempt,
+                    settings.LLM_MAX_RETRIES + 1,
+                    exc,
+                )
+            except Exception as exc:
+                last_exc = exc
+                logger.warning(
+                    "Anthropic 调用失败 attempt={}/{} err={}",
+                    attempt,
+                    settings.LLM_MAX_RETRIES + 1,
+                    exc,
+                )
+        raise RuntimeError(f"Anthropic 调用失败: {last_exc}")
 
     # ---------- 流式 ----------
 

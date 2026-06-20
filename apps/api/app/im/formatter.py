@@ -53,9 +53,10 @@ def format_feishu_post(
     references: list[dict] | None = None,
     tool_calls: list[dict] | None = None,
 ) -> dict:
-    """生成飞书 post 富文本结构（``{"zh_cn": {"title", "content": [[...]]}}``）。
+    """生成飞书 post 富文本结构（``{"zh_cn": {"content": [[...]]}}``）。
 
     由 ``im/feishu.reply_message`` 以 ``msg_type=post`` 发送，复用 ``_reference_location``。
+    不带 title，避免每条消息正文开头都出现"小苏"前缀。
     """
     content: list[list[dict]] = [[{"tag": "text", "text": answer}]]
 
@@ -74,4 +75,4 @@ def format_feishu_post(
         names = "、".join(t.get("name", "") for t in tool_calls)
         content.append([{"tag": "text", "text": f"（本次调用工具：{names}）"}])
 
-    return {"zh_cn": {"title": "小苏", "content": content}}
+    return {"zh_cn": {"content": content}}

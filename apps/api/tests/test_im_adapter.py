@@ -181,7 +181,7 @@ def test_format_feishu_post_with_references() -> None:
         [{"filename": "员工手册.md", "heading_path": "年假规则"}],
         [{"name": "get_employee"}],
     )
-    assert post["zh_cn"]["title"] == "小苏"
+    assert "title" not in post["zh_cn"]  # 不再在消息开头加"小苏"标题
     texts = [seg["text"] for row in post["zh_cn"]["content"] for seg in row]
     assert "正式员工每年 5 天年假。" in texts
     assert any("员工手册.md" in t for t in texts)
@@ -209,3 +209,75 @@ def test_format_feishu_post_with_reference_link(monkeypatch: pytest.MonkeyPatch)
     links = [seg for row in post["zh_cn"]["content"] for seg in row if seg["tag"] == "a"]
 
     assert links[0]["href"] == "http://localhost:3001/admin/documents/doc1?chunk=chunk1"
+
+
+@pytest.mark.asyncio
+async def test_dingtalk_reply_retries_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """钉钉回复遇到 5xx 应重试一次。"""
+    from app.im import dingtalk
+
+    class FakeResponse:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+    class FakeClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.responses = [FakeResponse(500), FakeResponse(200)]
+            self.calls = 0
+
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> FakeResponse:
+            self.calls += 1
+            return self.responses.pop(0)
+
+    fake_client = FakeClient()
+    monkeypatch.setattr(dingtalk.httpx, "AsyncClient", lambda **_kwargs: fake_client)
+
+    assert await dingtalk.reply_via_webhook("http://webhook.test", "hi") is True
+    assert fake_client.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_feishu_reply_retries_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """飞书回复发送消息遇到 5xx 应重试一次。"""
+    import time
+
+    from app.im import feishu
+
+    class FakeResponse:
+        def __init__(self, status_code: int) -> None:
+            self.status_code = status_code
+
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError("server error")
+
+        def json(self) -> dict:
+            return {}
+
+    class FakeClient:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            self.responses = [FakeResponse(500), FakeResponse(200)]
+            self.calls = 0
+
+        async def __aenter__(self) -> "FakeClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def post(self, *_args: object, **_kwargs: object) -> FakeResponse:
+            self.calls += 1
+            return self.responses.pop(0)
+
+    fake_client = FakeClient()
+    feishu._token_cache.update(token="token", expire_at=time.time() + 3600)
+    monkeypatch.setattr(feishu.httpx, "AsyncClient", lambda **_kwargs: fake_client)
+
+    assert await feishu.reply_message("chat", {"text": "hi"}) is True
+    assert fake_client.calls == 2

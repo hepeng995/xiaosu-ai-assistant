@@ -5,11 +5,18 @@
 """
 import pytest
 
+from app.agents.prompts import SENSITIVE_KEYWORDS
+from app.core.config import settings
 from app.llm.openai_compatible import llm_service
 from app.tools.attendance_tool import AttendanceTool
 from app.tools.employee_tool import EmployeeTool
 from app.tools.orders_tool import OrdersTool
 from app.tools.time_tool import CurrentTimeTool
+
+
+def test_rag_score_threshold_default_matches_spec() -> None:
+    """默认 RAG 阈值应与笔试题/开发规范一致。"""
+    assert settings.RAG_SCORE_THRESHOLD == 0.72
 
 
 def test_llm_uses_mock_without_key() -> None:
@@ -29,6 +36,20 @@ def test_mock_plan_selects_orders_tool() -> None:
     calls = llm_service._mock_plan("上周一共多少订单？")
     names = [c["function"]["name"] for c in calls]
     assert "get_orders" in names
+
+
+def test_mock_plan_sales_target_uses_knowledge_base() -> None:
+    """问未来销售目标 → mock 应检索知识库，不能误走订单工具。"""
+    calls = llm_service._mock_plan("2030 年的销售目标是多少？")
+    names = [c["function"]["name"] for c in calls]
+    assert names == ["search_knowledge_base"]
+
+
+def test_salary_detail_keywords_are_sensitive() -> None:
+    """工资明细类问题应走隐私拒答前置。"""
+    assert "工资明细" in SENSITIVE_KEYWORDS
+    assert "薪资明细" in SENSITIVE_KEYWORDS
+    assert "所有员工工资" in SENSITIVE_KEYWORDS
 
 
 def test_mock_plan_selects_time_tool() -> None:

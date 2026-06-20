@@ -102,10 +102,14 @@ export const api = {
 
   documents: {
     list: () => request<{ items: DocumentItem[]; total: number }>("/api/admin/documents"),
-    upload: (file: File) => {
+    upload: (file: File, waitForIndex = false) => {
       const form = new FormData();
       form.append("file", file);
-      return fetch(`${BASE_URL}/api/admin/documents`, { method: "POST", body: form }).then((r) => {
+      const search = waitForIndex ? "?wait_for_index=true" : "";
+      return fetch(`${BASE_URL}/api/admin/documents${search}`, {
+        method: "POST",
+        body: form,
+      }).then((r) => {
         if (!r.ok) throw new Error("上传失败");
         return r.json() as Promise<DocumentItem>;
       });

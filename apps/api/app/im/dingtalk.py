@@ -15,6 +15,8 @@ from loguru import logger
 from app.core.config import settings
 from app.im.base import IMMessage
 
+_IM_REPLY_RETRIES = 1
+
 
 def verify_sign(timestamp: str, sign: str) -> bool:
     """校验钉钉回调签名：HMAC-SHA256(timestamp + '\\n' + app_secret) → base64。
@@ -136,14 +138,36 @@ async def reply_via_webhook(session_webhook: str, text: str, markdown: str | Non
             "无 sessionWebhook，跳过钉钉回复（可能为本地/mock 测试）"
         )
         return False
+    # 标题取回答摘要用于会话列表预览（不再固定"小苏"，避免每条消息开头都带前缀）
+    title = (text or "").strip().replace("\n", " ")[:30] or "回复"
     body = {
         "msgtype": "markdown",
-        "markdown": {"title": "小苏", "text": markdown or text},
+        "markdown": {"title": title, "text": markdown or text},
     }
-    try:
-        async with httpx.AsyncClient(timeout=float(settings.IM_DEFAULT_TIMEOUT_SECONDS)) as client:
-            resp = await client.post(session_webhook, json=body)
-        return resp.status_code == 200
-    except Exception as exc:
-        logger.bind(module="im", event="dingtalk_reply").warning("钉钉回复失败: {}", exc)
-        return False
+    reply_logger = logger.bind(module="im", event="dingtalk_reply")
+    async with httpx.AsyncClient(timeout=float(settings.IM_DEFAULT_TIMEOUT_SECONDS)) as client:
+        for attempt in range(_IM_REPLY_RETRIES + 1):
+            try:
+                resp = await client.post(session_webhook, json=body)
+                if resp.status_code == 200:
+                    return True
+                if resp.status_code < 500:
+                    reply_logger.warning("钉钉回复失败 status={}", resp.status_code)
+                    return False
+                reply_logger.warning(
+                    "钉钉回复 5xx attempt={}/{} status={}",
+                    attempt + 1,
+                    _IM_REPLY_RETRIES + 1,
+                    resp.status_code,
+                )
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                reply_logger.warning(
+                    "钉钉回复异常 attempt={}/{} err={}",
+                    attempt + 1,
+                    _IM_REPLY_RETRIES + 1,
+                    exc,
+                )
+            if attempt < _IM_REPLY_RETRIES:
+                continue
+            return False
+    return False

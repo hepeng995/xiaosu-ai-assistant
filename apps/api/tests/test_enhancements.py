@@ -2,6 +2,7 @@
 
 import asyncio
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from typing import Any
@@ -10,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agents import tool_registry
-from app.api import routes_chat
+from app.api import routes_admin_documents, routes_chat
 from app.api.routes_admin_logs import list_messages
 from app.core import observability, pricing
 from app.core.errors import ErrorCode
@@ -136,6 +137,34 @@ async def test_chat_exception_updates_assistant_error_code(
     assert updates["error_code"] == ErrorCode.LLM_AUTH_ERROR
 
 
+@pytest.mark.asyncio
+async def test_chat_salary_detail_refuses_before_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """工资明细类隐私问题应在 Agent 前拒答，避免调用任何工具/模型。"""
+    conv = SimpleNamespace(id=uuid.uuid4())
+    saved: list[tuple[str, str, dict[str, Any]]] = []
+
+    async def fake_get_or_create_conversation(*_args: object) -> Any:
+        return conv
+
+    async def fake_save_message(*args: object, **extra: object) -> Any:
+        saved.append((str(args[1]), str(args[2]), dict(extra)))
+        return SimpleNamespace(id=uuid.uuid4())
+
+    async def fake_agent_run(*_args: object, **_kwargs: object) -> Any:
+        raise AssertionError("隐私拒答不应进入 Agent")
+
+    monkeypatch.setattr(chat_service, "get_or_create_conversation", fake_get_or_create_conversation)
+    monkeypatch.setattr(chat_service, "save_message", fake_save_message)
+    monkeypatch.setattr(chat_service, "agent_run", fake_agent_run)
+
+    result = await chat_service.chat("web", "debug", "admin", "请发所有员工工资", object())
+
+    assert result["refused"] is True
+    assert result["answer"] == chat_service.REFUSAL_PRIVACY
+    assistant = next(item for item in saved if item[0] == "assistant")
+    assert assistant[2]["success"] is False
+
+
 def test_chat_stream_mock_fallback_events(monkeypatch: pytest.MonkeyPatch) -> None:
     """SSE 降级路径仍应输出 token/references/done 三类事件。"""
 
@@ -255,6 +284,56 @@ async def test_admin_logs_include_conversation_identity() -> None:
     assert result["items"][0]["platform"] == "dingtalk"
     assert result["items"][0]["user_id"] == "u1"
     assert result["items"][0]["user_name"] == "张三"
+
+
+@pytest.mark.asyncio
+async def test_upload_document_wait_for_index_returns_refreshed_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """wait_for_index=true 应等待索引并返回刷新后的文档状态。"""
+    now = datetime.now(UTC)
+    doc = SimpleNamespace(
+        id=uuid.uuid4(),
+        filename="stored.md",
+        original_filename="制度.md",
+        file_type="md",
+        file_size=12,
+        status="pending",
+        version=1,
+        error_message=None,
+        created_at=now,
+        updated_at=now,
+    )
+    indexed: list[uuid.UUID] = []
+
+    class FakeBackgroundTasks:
+        def add_task(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("wait_for_index=true 不应加入后台任务")
+
+    class FakeSession:
+        async def refresh(self, obj: object) -> None:
+            obj.status = "indexed"  # type: ignore[attr-defined]
+
+    async def fake_upload_document(*_args: object, **_kwargs: object) -> Any:
+        return doc
+
+    async def fake_index_document(document_id: uuid.UUID) -> None:
+        indexed.append(document_id)
+
+    monkeypatch.setattr(
+        routes_admin_documents.document_service, "upload_document", fake_upload_document
+    )
+    monkeypatch.setattr(routes_admin_documents, "index_document", fake_index_document)
+
+    result = await routes_admin_documents.upload_document(
+        file=object(),  # type: ignore[arg-type]
+        background_tasks=FakeBackgroundTasks(),  # type: ignore[arg-type]
+        wait_for_index=True,
+        session=FakeSession(),  # type: ignore[arg-type]
+    )
+
+    assert indexed == [doc.id]
+    assert result.status == "indexed"
 
 
 @pytest.mark.asyncio

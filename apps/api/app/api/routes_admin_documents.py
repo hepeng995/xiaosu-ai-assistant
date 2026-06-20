@@ -3,7 +3,7 @@
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, UploadFile
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,11 +21,16 @@ router = APIRouter(prefix="/api/admin/documents", tags=["documents"])
 async def upload_document(
     file: UploadFile,
     background_tasks: BackgroundTasks,
+    wait_for_index: bool = Query(False),
     session: AsyncSession = Depends(get_db),
 ) -> DocumentOut:
-    """上传文档，返回 pending；索引在后台任务中执行。"""
+    """上传文档；默认后台索引，wait_for_index=true 时同步等待索引完成。"""
     doc = await document_service.upload_document(file, session)
-    background_tasks.add_task(index_document, doc.id)
+    if wait_for_index:
+        await index_document(doc.id)
+        await session.refresh(doc)
+    else:
+        background_tasks.add_task(index_document, doc.id)
     return DocumentOut.model_validate(doc)
 
 

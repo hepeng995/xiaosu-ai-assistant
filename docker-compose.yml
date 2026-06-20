@@ -56,6 +56,7 @@ services:
   web:
     build:
       context: ./apps/web
+      dockerfile: docker/Dockerfile
       args:
         # Next.js 的 NEXT_PUBLIC_* 在构建期编入前端；默认指向本机 API
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8000}

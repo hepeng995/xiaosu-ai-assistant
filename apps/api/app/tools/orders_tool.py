@@ -8,7 +8,10 @@ from app.tools.internal_api import request_internal_api
 
 class OrdersTool:
     name = "get_orders"
-    description = "根据日期范围查询订单数据，可统计订单数量与销售额。"
+    description = (
+        "根据日期范围查询历史订单记录、订单数量与实际销售额；"
+        "不用于销售目标、销售计划或未来规划。"
+    )
 
     def schema(self) -> dict[str, Any]:
         return {

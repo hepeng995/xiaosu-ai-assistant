@@ -211,9 +211,11 @@ class LLMService:
         calls: list[dict] = []
         emp_match = re.search(r"(\d{3})", user_msg)
         emp_id: str | None = emp_match.group(1) if emp_match else None
-        if any(k in user_msg for k in ("几点", "现在时间", "今天几号", "日期", "现在")):
+        if any(k in user_msg for k in ("销售目标", "销售计划", "未来规划", "经营目标", "2030")):
+            calls.append(self._tool_call("search_knowledge_base", {"query": user_msg}))
+        elif any(k in user_msg for k in ("几点", "现在时间", "今天几号", "日期", "现在")):
             calls.append(self._tool_call("get_current_time", {"timezone": "Asia/Shanghai"}))
-        elif any(k in user_msg for k in ("订单", "销售额", "销售")):
+        elif any(k in user_msg for k in ("订单", "销售额", "订单数量")):
             calls.append(
                 self._tool_call(
                     "get_orders", {"start_date": "2026-06-08", "end_date": "2026-06-14"}

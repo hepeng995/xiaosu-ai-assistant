@@ -24,6 +24,38 @@ from app.im.base import IMMessage
 _token_cache: dict[str, Any] = {"token": "", "expire_at": 0.0}
 
 _EVENT_MESSAGE_RECEIVE = "im.message.receive_v1"
+_IM_REPLY_RETRIES = 1
+
+
+async def _post_json_with_retry(url: str, **kwargs: Any) -> httpx.Response:
+    """IM 外呼 POST：对网络异常/超时/5xx 重试 1 次，4xx 不重试。"""
+    last_exc: Exception | None = None
+    async with httpx.AsyncClient(timeout=float(settings.IM_DEFAULT_TIMEOUT_SECONDS)) as client:
+        for attempt in range(_IM_REPLY_RETRIES + 1):
+            try:
+                resp = await client.post(url, **kwargs)
+                if resp.status_code < 500:
+                    return resp
+                logger.bind(module="im", event="feishu_http").warning(
+                    "飞书外呼 5xx attempt={}/{} status={}",
+                    attempt + 1,
+                    _IM_REPLY_RETRIES + 1,
+                    resp.status_code,
+                )
+            except (httpx.TimeoutException, httpx.TransportError) as exc:
+                last_exc = exc
+                logger.bind(module="im", event="feishu_http").warning(
+                    "飞书外呼异常 attempt={}/{} err={}",
+                    attempt + 1,
+                    _IM_REPLY_RETRIES + 1,
+                    exc,
+                )
+            if attempt < _IM_REPLY_RETRIES:
+                continue
+            if last_exc is not None:
+                raise RuntimeError("飞书外呼失败") from last_exc
+            return resp
+    raise RuntimeError("飞书外呼失败")
 
 
 def is_url_verification(payload: dict) -> bool:
@@ -145,8 +177,7 @@ async def get_tenant_access_token() -> str:
     url = f"{settings.FEISHU_BASE_URL}/auth/v3/tenant_access_token/internal"
     body = {"app_id": settings.FEISHU_APP_ID, "app_secret": settings.FEISHU_APP_SECRET}
     try:
-        async with httpx.AsyncClient(timeout=float(settings.IM_DEFAULT_TIMEOUT_SECONDS)) as client:
-            resp = await client.post(url, json=body)
+        resp = await _post_json_with_retry(url, json=body)
         resp.raise_for_status()
         data = resp.json()
     except Exception as exc:  # 顶层兜底，统一转 RuntimeError
@@ -187,8 +218,7 @@ async def reply_message(receive_id: str, content: dict, msg_type: str = "text") 
         "content": json.dumps(content, ensure_ascii=False),
     }
     try:
-        async with httpx.AsyncClient(timeout=float(settings.IM_DEFAULT_TIMEOUT_SECONDS)) as client:
-            resp = await client.post(url, json=body, headers=headers)
+        resp = await _post_json_with_retry(url, json=body, headers=headers)
         return resp.status_code == 200
     except Exception as exc:  # IM 回复失败兜底，不抛出
         logger.bind(module="im", event="feishu_reply").warning("飞书回复失败: {}", exc)
