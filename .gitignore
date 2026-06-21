@@ -73,3 +73,7 @@ CLAUDE.md
 AGENTS.md
 小苏 AI 助手分阶段开发文档.md
 AI 助手开发文档.md
+
+# 本地工具产物与内部文档目录（spec-workflow 模板 / 设计文档 / 联调记录，不入库）
+.spec-workflow/
+docs/
