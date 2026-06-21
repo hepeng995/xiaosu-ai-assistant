@@ -93,8 +93,7 @@ class LLMService:
                     chunk = json.loads(data)
                 except json.JSONDecodeError:
                     continue
-                delta = chunk.get("choices", [{}])[0].get("delta", {})
-                token = delta.get("content")
+                token = self._extract_delta_token(chunk)
                 if token:
                     yield token
         llm_logger.info("LLM 流式请求结束")
@@ -174,6 +173,21 @@ class LLMService:
         return LLMResponse(
             content, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
         )
+
+    @staticmethod
+    def _extract_delta_token(chunk: dict) -> str | None:
+        """从流式 chunk 安全提取 ``delta.content`` token。
+
+        部分 OpenAI-compatible provider（含当前 mimo-v2.5）会在流末尾发 usage-only
+        chunk（``choices`` 为空列表），旧实现 ``chunk.get("choices", [{}])[0]`` 会触发
+        ``IndexError: list index out of range``，导致流式中断、整段回答降级为兜底文案、
+        飞书卡片内容异常。空 choices 直接跳过即可。
+        """
+        choices = chunk.get("choices") or []
+        if not choices:
+            return None
+        delta = choices[0].get("delta") or {}
+        return delta.get("content") or None
 
     # ---------- mock 实现（无 key 时模拟模型行为）----------
 
