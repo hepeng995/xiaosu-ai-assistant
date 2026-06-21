@@ -11,14 +11,13 @@ import time
 from io import BytesIO
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request, UploadFile
+from fastapi import APIRouter, Request, UploadFile
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import AppException, ErrorCode
 from app.core.redis_client import acquire_idempotent
-from app.db.session import AsyncSessionLocal, get_db
+from app.db.session import AsyncSessionLocal
 from app.im import feishu_stream
 from app.im.base import IMAttachment, IMMessage
 from app.im.dingtalk import (
@@ -73,7 +72,7 @@ async def dingtalk_callback_probe(request: Request) -> dict:
 
 
 @dingtalk_router.post("/callback")
-async def dingtalk_callback(request: Request, session: AsyncSession = Depends(get_db)) -> dict:
+async def dingtalk_callback(request: Request) -> dict:
     """钉钉事件订阅加密回调：验签 → AES 解密 → check_url 校验/消息处理 → sessionWebhook 回复。
 
     钉钉企业内部应用以「事件订阅 + AES 加密」推送消息：
@@ -117,7 +116,7 @@ async def dingtalk_callback(request: Request, session: AsyncSession = Depends(ge
             "encrypt": encrypted,
         }
 
-    # 4) 消息事件 → 解析 → chat → 回复
+    # 4) 消息事件 → 解析 → 幂等去重 → 后台处理（chat 主链路耗时数秒，避免网关超时与重试）
     im_msg = parse_webhook(event)
     if not im_msg.text:
         return {"success": False, "message": "空消息"}
@@ -128,30 +127,68 @@ async def dingtalk_callback(request: Request, session: AsyncSession = Depends(ge
         im_msg.text[:50],
     )
 
-    # 5) 调用 chat（异常兜底，IM 端必有回复）
+    # 5) 幂等去重：钉钉网络异常会重试同一消息，用 msgId 去重避免重复回复
+    idem_key = f"dingtalk:msg:{im_msg.message_id}"
+    if not await acquire_idempotent(idem_key):
+        logger.bind(module="im", event="dedup", platform="dingtalk").info(
+            "钉钉重复事件已忽略 msgId={}", im_msg.message_id
+        )
+        return {"success": True, "deduplicated": True}
+
+    # 6) 立即返回 200，后台异步处理（占位消息 + 最终答案，IM 端必有回复）
+    session_webhook = event.get("sessionWebhook", "")
+    task = asyncio.create_task(
+        _handle_dingtalk_message(
+            im_msg, session_webhook, logger.bind(module="im", platform="dingtalk")
+        )
+    )
+    _BACKGROUND_TASKS.add(task)
+    task.add_done_callback(_BACKGROUND_TASKS.discard)
+    return {"success": True, "accepted": True}
+
+
+async def _handle_dingtalk_message(
+    im_msg: IMMessage,
+    session_webhook: str,
+    bind: Any,
+) -> None:
+    """后台处理钉钉消息：先发占位消息消除黑盒等待 → 跑 chat 主链路 → 发最终答案。
+
+    钉钉 sessionWebhook 不支持流式更新单条消息，故采用双消息方案（占位 + 答案）。
+    任一阶段失败均有兜底（占位失败不阻塞主链路；chat 异常用 _CHAT_FALLBACK），保证 IM 端必有回复。
+    """
+    # 1) 占位消息（best-effort：失败只告警，不阻塞主链路）
+    if settings.DINGTALK_PLACEHOLDER_ENABLED and session_webhook:
+        try:
+            await reply_via_webhook(
+                session_webhook, text=settings.DINGTALK_PLACEHOLDER_TEXT, markdown=None
+            )
+        except Exception as exc:
+            bind.warning("钉钉占位消息发送失败（已忽略，继续主链路）: {}", exc)
+
+    # 2) chat 主链路（异常兜底 _CHAT_FALLBACK）
     try:
-        result = await chat_service.chat(
-            platform="dingtalk",
-            conversation_id=im_msg.conversation_id,
-            user_id=im_msg.user_id,
-            message=im_msg.text,
-            session=session,
-            user_name=im_msg.user_name,
-        )
-    except Exception as exc:  # IM 端兜底，保证必有回复
-        logger.bind(module="im", event="chat_fallback", platform="dingtalk").exception(
-            "chat 处理异常: {}", exc
-        )
+        async with AsyncSessionLocal() as session:
+            result = await chat_service.chat(
+                platform="dingtalk",
+                conversation_id=im_msg.conversation_id,
+                user_id=im_msg.user_id,
+                message=im_msg.text,
+                session=session,
+                user_name=im_msg.user_name,
+            )
+    except Exception as exc:
+        bind.exception("钉钉后台 chat 异常: {}", exc)
         result = _CHAT_FALLBACK
 
-    # 6) 格式化 + 回复钉钉（Markdown 优先，用 sessionWebhook 被动回复）
+    # 3) 格式化 + 回复最终答案（Markdown 优先，用 sessionWebhook 被动回复）
     text, markdown = format_reply(
         result.get("answer", ""), result.get("references", []), result.get("tool_calls", [])
     )
-    session_webhook = event.get("sessionWebhook", "")
-    await reply_via_webhook(session_webhook, text, markdown)
-
-    return {"success": True, "answer": text, "refused": result.get("refused", False)}
+    if await reply_via_webhook(session_webhook, text, markdown):
+        bind.info("钉钉后台回复完成")
+    else:
+        bind.error("钉钉最终答案发送失败 sessionWebhook={}", session_webhook)
 
 
 feishu_router = APIRouter(prefix="/api/im/feishu", tags=["im"])
@@ -279,9 +316,25 @@ async def _feishu_stream_reply(im_msg: IMMessage, card_id: str, bind: Any) -> No
     """
     sequence = 1
     accumulated = ""
+    status_lines: list[str] = []
     last_flush = time.monotonic()
     references: list[dict] = []
-    flush_interval = 0.4  # 攒批间隔（秒），规避网络与接口频率开销
+    flush_interval = settings.FEISHU_FLUSH_INTERVAL_MS / 1000.0  # 攒批间隔（可配置，默认 80ms）
+
+    def _compose_card_text() -> str:
+        """组合卡片正文：进度文案（markdown 引用块）+ 已累积 token。"""
+        if status_lines:
+            status_block = "\n".join(f"> {line}" for line in status_lines)
+            return f"{status_block}\n\n{accumulated}".strip()
+        return accumulated
+
+    async def _flush() -> None:
+        """攒批到达间隔时更新卡片文本（进度文案 + token）。"""
+        nonlocal sequence, last_flush
+        text = _compose_card_text()
+        if text and await feishu_stream.update_card_text(card_id, text, sequence):
+            sequence += 1
+        last_flush = time.monotonic()
 
     async with AsyncSessionLocal() as session:
         try:
@@ -294,12 +347,15 @@ async def _feishu_stream_reply(im_msg: IMMessage, card_id: str, bind: Any) -> No
                 user_name=im_msg.user_name,
             ):
                 ev = event.get("event")
-                if ev == "token":
+                if ev == "status":
+                    label = event.get("data", {}).get("label", "")
+                    if label:
+                        status_lines.append(label)
+                        await _flush()  # 进度文案立即推送，消除空卡片黑盒等待
+                elif ev == "token":
                     accumulated += event.get("data", {}).get("content", "")
                     if accumulated and time.monotonic() - last_flush >= flush_interval:
-                        if await feishu_stream.update_card_text(card_id, accumulated, sequence):
-                            sequence += 1
-                        last_flush = time.monotonic()
+                        await _flush()
                 elif ev == "references":
                     references = event.get("data", {}).get("references", []) or []
         except Exception as exc:  # stream_chat 内部已兜底；此处记日志，卡片尽量保留已累积内容

@@ -6,9 +6,10 @@ from collections.abc import AsyncIterator
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.agent import prepare_response
+from app.agents.agent import PreparedAgentResult, prepare_response_stream
 from app.agents.agent import run as agent_run
 from app.agents.prompts import REFUSAL_NO_RESULT, REFUSAL_PRIVACY, SENSITIVE_KEYWORDS
+from app.core.config import settings
 from app.core.errors import ErrorCode
 from app.core.observability import trace_span
 from app.core.pricing import estimate_cost
@@ -234,9 +235,21 @@ async def stream_chat(
     )
 
     try:
-        prepared = await prepare_response(
+        prepared: PreparedAgentResult | None = None
+        async for event in prepare_response_stream(
             history_msgs, message, session, message_id=assistant_msg.id
-        )
+        ):
+            if event["type"] == "status" and settings.FEISHU_TOOL_STATUS_ENABLED:
+                yield {
+                    "event": "status",
+                    "data": {
+                        "stage": event.get("stage", ""),
+                        "tool_name": event.get("tool_name"),
+                        "label": event.get("label", ""),
+                    },
+                }
+            elif event["type"] == "prepared":
+                prepared = event["data"]
     except Exception as exc:
         agent_error_code = _classify_agent_error(exc)
         logger.exception("Agent 流式准备失败，使用兜底文案: {}", exc)
@@ -256,6 +269,8 @@ async def stream_chat(
         yield {"event": "done", "data": {"success": False, "refused": False}}
         return
 
+    # prepare_response_stream 正常完成必 yield prepared；assert 收窄类型供 mypy
+    assert prepared is not None
     has_external_tool = any(
         tc.get("name") != "search_knowledge_base" for tc in prepared.tool_calls
     )
