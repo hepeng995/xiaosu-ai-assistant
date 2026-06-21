@@ -64,3 +64,12 @@ _test_evt.py
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# ---------- 本地保留但不上传的内部文档 ----------
+# 这些文件仅本地使用（招聘材料 / 开发规范 / AI 指令），不进入 GitHub 仓库
+招聘笔试题.html
+开发规范.md
+CLAUDE.md
+AGENTS.md
+小苏 AI 助手分阶段开发文档.md
+AI 助手开发文档.md
