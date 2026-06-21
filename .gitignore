@@ -51,8 +51,6 @@ storage/parsed/*
 
 # ---------- 本地工具缓存与临时截图（不入库）----------
 .playwright-mcp/
-/admin-overview-light.png
-/ov-data.png
 
 # ---------- 编辑器与系统 ----------
 .gstack/
