@@ -8,14 +8,17 @@ import asyncio
 import json
 import secrets
 import time
+from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.errors import AppException, ErrorCode
 from app.core.redis_client import acquire_idempotent
 from app.db.session import AsyncSessionLocal, get_db
+from app.im import feishu_stream
 from app.im.base import IMMessage
 from app.im.dingtalk import (
     decrypt_event,
@@ -215,9 +218,10 @@ async def feishu_callback(request: Request) -> dict:
 
 
 async def _handle_feishu_message(im_msg: IMMessage) -> None:
-    """后台处理飞书消息：chat 主链路 + 主动发消息回复（异常时发兜底消息）。
+    """后台处理飞书消息：流式卡片（开启且创建成功）或一次性 post（降级）。
 
-    在独立 DB 会话中执行（请求会话随响应结束而关闭）。
+    流式路径复用 chat_service.stream_chat，逐 token 攒批更新卡片（打字机效果）；
+    stream_chat 内部已落库与异常兜底。任一阶段失败自动降级为一次性 post，保证 IM 必有回复。
     """
     bind = logger.bind(
         module="im",
@@ -226,6 +230,15 @@ async def _handle_feishu_message(im_msg: IMMessage) -> None:
         conversation_id=im_msg.conversation_id,
         user_id=im_msg.user_id,
     )
+    card_id: str | None = None
+    if settings.FEISHU_STREAMING_ENABLED:
+        card_id = await feishu_stream.create_streaming_card(im_msg.conversation_id)
+
+    if card_id is not None:
+        await _feishu_stream_reply(im_msg, card_id, bind)
+        return
+
+    # 降级：一次性 post 富文本回复（含引用与工具调用）
     try:
         async with AsyncSessionLocal() as session:
             result = await chat_service.chat(
@@ -240,9 +253,54 @@ async def _handle_feishu_message(im_msg: IMMessage) -> None:
         bind.exception("飞书后台 chat 异常: {}", exc)
         result = _CHAT_FALLBACK
 
-    # 格式化 + 主动回复飞书（post 富文本，含引用与工具调用）
     post_content = format_feishu_post(
         result.get("answer", ""), result.get("references", []), result.get("tool_calls", [])
     )
     await reply_message(im_msg.conversation_id, post_content, msg_type="post")
-    bind.info("飞书后台回复完成")
+    bind.info("飞书后台回复完成（一次性）")
+
+
+async def _feishu_stream_reply(im_msg: IMMessage, card_id: str, bind: Any) -> None:
+    """流式回复：stream_chat 攒批更新卡片文本，结束追加引用并关闭流式。
+
+    stream_chat 内部已处理落库与异常兜底（update_message），此处仅负责卡片展示更新。
+    """
+    sequence = 1
+    accumulated = ""
+    last_flush = time.monotonic()
+    references: list[dict] = []
+    flush_interval = 0.4  # 攒批间隔（秒），规避网络与接口频率开销
+
+    async with AsyncSessionLocal() as session:
+        try:
+            async for event in chat_service.stream_chat(
+                platform="feishu",
+                conversation_id=im_msg.conversation_id,
+                user_id=im_msg.user_id,
+                message=im_msg.text,
+                session=session,
+                user_name=im_msg.user_name,
+            ):
+                ev = event.get("event")
+                if ev == "token":
+                    accumulated += event.get("data", {}).get("content", "")
+                    if accumulated and time.monotonic() - last_flush >= flush_interval:
+                        if await feishu_stream.update_card_text(card_id, accumulated, sequence):
+                            sequence += 1
+                        last_flush = time.monotonic()
+                elif ev == "references":
+                    references = event.get("data", {}).get("references", []) or []
+        except Exception as exc:  # stream_chat 内部已兜底；此处记日志，卡片尽量保留已累积内容
+            bind.exception("飞书流式 stream_chat 异常: {}", exc)
+
+    # 最终更新：累积全文 + 引用来源
+    final_text = accumulated
+    if references:
+        ref_lines = "\n".join(
+            f"{i + 1}. {r.get('filename', '')}" for i, r in enumerate(references)
+        )
+        final_text = f"{accumulated}\n\n---\n参考来源：\n{ref_lines}".strip()
+    if final_text and await feishu_stream.update_card_text(card_id, final_text, sequence):
+        sequence += 1
+    await feishu_stream.close_streaming(card_id, sequence)  # best-effort 关闭
+    bind.info("飞书流式回复完成")

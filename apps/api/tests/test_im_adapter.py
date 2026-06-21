@@ -281,3 +281,123 @@ async def test_feishu_reply_retries_5xx(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert await feishu.reply_message("chat", {"text": "hi"}) is True
     assert fake_client.calls == 2
+
+
+# ---------- 飞书 CardKit 流式卡片 ----------
+
+
+@pytest.mark.asyncio
+async def test_feishu_stream_create_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """创建流式卡片：card.create + message create 均成功 → 返回 card_id。"""
+    from app.im import feishu_stream
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {"code": 0, "msg": "ok", "data": {"card_id": "CARD_001"}}
+
+    async def fake_post(url: str, **_kwargs: object) -> FakeResp:
+        return FakeResp()
+
+    async def fake_token() -> str:
+        return "tenant_token"
+
+    monkeypatch.setattr(feishu_stream, "_post_json_with_retry", fake_post)
+    monkeypatch.setattr(feishu_stream, "get_tenant_access_token", fake_token)
+
+    assert await feishu_stream.create_streaming_card("chat_1") == "CARD_001"
+
+
+@pytest.mark.asyncio
+async def test_feishu_stream_create_no_permission_returns_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """card.create 失败（如缺 cardkit:card:write 权限）→ 返回 None（调用方降级）。"""
+    from app.im import feishu_stream
+
+    class FakeResp:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {"code": 99991000, "msg": "permission denied"}
+
+    async def fake_post(url: str, **_kwargs: object) -> FakeResp:
+        return FakeResp()
+
+    async def fake_token() -> str:
+        return "tenant_token"
+
+    monkeypatch.setattr(feishu_stream, "_post_json_with_retry", fake_post)
+    monkeypatch.setattr(feishu_stream, "get_tenant_access_token", fake_token)
+
+    assert await feishu_stream.create_streaming_card("chat_1") is None
+
+
+@pytest.mark.asyncio
+async def test_feishu_stream_reply_batches_and_appends_references(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_feishu_stream_reply 攒批更新卡片，最终追加引用并关闭流式。"""
+    import time as _time
+
+    from loguru import logger
+
+    from app.api import routes_im
+    from app.im.base import IMMessage
+
+    updates: list[tuple[int, str]] = []
+    closes: list[int] = []
+
+    async def fake_stream_chat(*_args: object, **_kwargs: object):
+        for piece in ("你", "好", "！"):
+            yield {"event": "token", "data": {"content": piece}}
+        yield {"event": "references", "data": {"references": [{"filename": "员工手册.md"}]}}
+
+    async def fake_update(card_id: str, content: str, sequence: int) -> bool:
+        updates.append((sequence, content))
+        return True
+
+    async def fake_close(card_id: str, sequence: int) -> bool:
+        closes.append(sequence)
+        return True
+
+    class FakeSession:
+        async def __aenter__(self) -> "FakeSession":
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+    # 让 time.monotonic 每次调用递增，确保每个 token 都触发攒批 flush
+    counter = [0]
+    orig_monotonic = _time.monotonic
+
+    def fake_monotonic() -> float:
+        counter[0] += 1
+        return orig_monotonic() + counter[0]
+
+    monkeypatch.setattr(routes_im.chat_service, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(routes_im.feishu_stream, "update_card_text", fake_update)
+    monkeypatch.setattr(routes_im.feishu_stream, "close_streaming", fake_close)
+    monkeypatch.setattr(routes_im, "AsyncSessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(routes_im.time, "monotonic", fake_monotonic)
+
+    im_msg = IMMessage(
+        platform="feishu",
+        message_id="m1",
+        conversation_id="c1",
+        conversation_type="private",
+        user_id="u1",
+        user_name=None,
+        text="你好",
+        raw={},
+    )
+    await routes_im._feishu_stream_reply(im_msg, "CARD_1", logger.bind())
+
+    # 每个 token flush 一次 + 最终全文(含引用)1 次
+    assert len(updates) >= 2
+    assert updates[-1][1].startswith("你好！")
+    assert "参考来源" in updates[-1][1]
+    assert "员工手册.md" in updates[-1][1]
+    assert len(closes) == 1

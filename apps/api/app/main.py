@@ -79,6 +79,11 @@ def create_app() -> FastAPI:
     app.include_router(im_feishu_router)
     app.include_router(admin_logs_router)
     app.include_router(admin_settings_router)
+    if settings.MCP_HTTP_ENABLED:
+        from app.mcp.http import get_mcp_http_app
+
+        app.mount(settings.MCP_HTTP_PATH, get_mcp_http_app())
+        logger.info("MCP HTTP 已挂载 path={}", settings.MCP_HTTP_PATH)
     return app
 
 

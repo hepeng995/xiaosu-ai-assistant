@@ -3,12 +3,16 @@
 验证：无 key 时走 mock，且工具选择逻辑（模拟 LLM）能正确选工具 + 工具 Schema 合法。
 真实模式下工具选择由 LLM 按 Tool Schema 自主决定（function calling）。
 """
+from typing import Any
+
 import pytest
 
 from app.agents.prompts import SENSITIVE_KEYWORDS
 from app.core.config import settings
 from app.llm.openai_compatible import llm_service
+from app.mcp import runtime
 from app.tools.attendance_tool import AttendanceTool
+from app.tools.base import ToolResult
 from app.tools.employee_tool import EmployeeTool
 from app.tools.orders_tool import OrdersTool
 from app.tools.time_tool import CurrentTimeTool
@@ -75,3 +79,89 @@ async def test_time_tool_runs() -> None:
     assert result.success
     assert isinstance(result.data, dict)
     assert "datetime" in result.data
+
+
+@pytest.mark.asyncio
+async def test_mcp_chat_uses_mcp_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCP 聊天入口应复用 chat_service，并固定 platform=mcp。"""
+    captured: dict[str, Any] = {}
+
+    class FakeSession:
+        async def __aenter__(self) -> str:
+            return "session"
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    async def fake_chat(*args: object) -> dict[str, Any]:
+        captured["args"] = args
+        return {
+            "answer": "ok",
+            "references": [],
+            "tool_calls": [],
+            "usage": {},
+            "refused": False,
+        }
+
+    monkeypatch.setattr(runtime, "AsyncSessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(runtime.chat_service, "chat", fake_chat)
+
+    result = await runtime.chat("你好", "conv", "u1", "张三")
+
+    assert result["success"] is True
+    assert result["answer"] == "ok"
+    assert captured["args"][:5] == ("mcp", "conv", "u1", "你好", "session")
+    assert captured["args"][5] == "张三"
+
+
+@pytest.mark.asyncio
+async def test_mcp_search_returns_references(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCP 知识库检索应直接返回引用结构，不生成编造答案。"""
+
+    class FakeSession:
+        async def __aenter__(self) -> str:
+            return "session"
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+    async def fake_search(query: str, session: object, top_k: int | None = None) -> list[dict]:
+        assert query == "年假"
+        assert session == "session"
+        assert top_k == 2
+        return [{"filename": "员工手册.md", "chunk_id": "c1", "quote": "年假", "score": 0.9}]
+
+    monkeypatch.setattr(runtime, "AsyncSessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(runtime, "search_knowledge", fake_search)
+
+    result = await runtime.search_knowledge_base("年假", top_k=2)
+
+    assert result["success"] is True
+    assert result["results"][0]["filename"] == "员工手册.md"
+    assert "answer" not in result
+
+
+@pytest.mark.asyncio
+async def test_mcp_tool_failure_is_friendly(monkeypatch: pytest.MonkeyPatch) -> None:
+    """MCP 原子工具失败时应归一为友好错误，不暴露底层异常。"""
+
+    class BrokenTool:
+        name = "get_employee"
+
+    async def fake_execute_tool(_tool: object, _arguments: dict[str, Any]) -> ToolResult:
+        return ToolResult(success=False, error_message="连接失败: ECONNREFUSED")
+
+    monkeypatch.setattr(runtime, "execute_tool", fake_execute_tool)
+    result = await runtime.run_tool(BrokenTool(), {"employee_id": "001"})
+
+    assert result["success"] is False
+    assert result["error_code"] == "TOOL_ERROR"
+    assert result["message"] == "小苏暂时无法连接内部系统，请稍后再试。"
+
+
+def test_mcp_server_imports_when_sdk_available() -> None:
+    """安装官方 mcp SDK 后，server 模块应可导入并完成注册。"""
+    pytest.importorskip("mcp")
+    from app.mcp.server import mcp_server
+
+    assert mcp_server is not None

@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     MAX_TOOL_ROUNDS: int = 3
     TOOL_TIMEOUT_SECONDS: int = 10
 
+    # ---------- MCP Server ----------
+    MCP_SERVER_NAME: str = "xiaosu-mcp"
+    MCP_HTTP_ENABLED: bool = False
+    MCP_HTTP_PATH: str = "/mcp"
+    MCP_HTTP_AUTH_TOKEN: str = _PLACEHOLDER
+
     # ---------- 存储 / 日志 ----------
     STORAGE_DIR: str = "storage/uploads"
     LOG_DIR: str = "logs"
@@ -83,6 +89,9 @@ class Settings(BaseSettings):
     FEISHU_VERIFICATION_TOKEN: str = _PLACEHOLDER
     FEISHU_ENCRYPT_KEY: str = _PLACEHOLDER
     FEISHU_BASE_URL: str = "https://open.feishu.cn/open-apis"
+    # 飞书流式卡片（CardKit 打字机效果）；需应用开通 cardkit:card:write 权限。
+    # 开启后 IM 回复先发流式卡片再逐批更新；创建失败自动降级为一次性 post 回复。
+    FEISHU_STREAMING_ENABLED: bool = True
 
     # ---------- IM / 会话 ----------
     IM_DEFAULT_TIMEOUT_SECONDS: int = 45
