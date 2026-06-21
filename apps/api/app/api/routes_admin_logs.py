@@ -4,10 +4,16 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.models import Conversation, Message
 
-router = APIRouter(prefix="/api/admin/messages", tags=["admin-logs"])
+# router 级鉴权：对话日志含员工隐私与 Token 成本，仅管理员可查
+router = APIRouter(
+    prefix="/api/admin/messages",
+    tags=["admin-logs"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 @router.get("")

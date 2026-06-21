@@ -26,6 +26,17 @@ class Settings(BaseSettings):
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
 
+    # ---------- 管理后台鉴权 ----------
+    # 管理员用户名；未配置时回退 admin。生产环境务必通过环境变量覆盖。
+    ADMIN_USERNAME: str = "admin"
+    # 管理员密码的 PBKDF2-HMAC-SHA256 哈希串（由 `uv run python -m app.core.security` 生成）。
+    # 未配置（占位）时回退内置默认密码 admin123 的哈希并告警，仅用于开发联调。
+    ADMIN_PASSWORD_HASH: str = _PLACEHOLDER
+    # JWT 签名密钥；未配置时开发环境自动随机生成（每次重启失效），生产必须配置固定值。
+    JWT_SECRET_KEY: str = _PLACEHOLDER
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 1440  # 24h
+
     # ---------- 数据库 / 缓存 ----------
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@localhost:5432/xiaosu"
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -106,6 +117,16 @@ class Settings(BaseSettings):
     def is_dev(self) -> bool:
         """是否为开发环境。"""
         return self.APP_ENV == "development"
+
+    @property
+    def admin_password_configured(self) -> bool:
+        """管理员密码哈希是否已真正配置（非占位）。"""
+        return self.is_secret_configured(self.ADMIN_PASSWORD_HASH)
+
+    @property
+    def jwt_secret_configured(self) -> bool:
+        """JWT 密钥是否已真正配置（非占位）。"""
+        return self.is_secret_configured(self.JWT_SECRET_KEY)
 
     def is_secret_configured(self, value: str) -> bool:
         """判断敏感配置是否已真正配置（非空且非占位）。"""

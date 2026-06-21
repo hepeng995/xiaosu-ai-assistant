@@ -8,13 +8,19 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppException, ErrorCode
+from app.core.security import require_admin
 from app.db.session import get_db
 from app.models import Document, DocumentChunk
 from app.schemas.document import ChunkOut, DocumentListOut, DocumentOut
 from app.services import document_service
 from app.services.indexing_service import index_document
 
-router = APIRouter(prefix="/api/admin/documents", tags=["documents"])
+# router 级鉴权：所有文档管理端点均需管理员登录
+router = APIRouter(
+    prefix="/api/admin/documents",
+    tags=["documents"],
+    dependencies=[Depends(require_admin)],
+)
 
 
 @router.post("", response_model=DocumentOut)

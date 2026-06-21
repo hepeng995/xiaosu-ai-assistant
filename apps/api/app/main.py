@@ -10,6 +10,7 @@ from loguru import logger
 
 from app.api.routes_admin_documents import router as documents_router
 from app.api.routes_admin_logs import router as admin_logs_router
+from app.api.routes_admin_settings import auth_router as admin_auth_router
 from app.api.routes_admin_settings import router as admin_settings_router
 from app.api.routes_chat import router as chat_router
 from app.api.routes_health import router as health_router
@@ -20,6 +21,7 @@ from app.core.config import settings
 from app.core.errors import register_exception_handlers
 from app.core.logging import setup_logging
 from app.core.observability import trace_id_var
+from app.core.security import warn_if_insecure
 
 
 @asynccontextmanager
@@ -29,6 +31,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     setup_logging()
     logger.info("应用启动 name={} env={}", settings.APP_NAME, settings.APP_ENV)
+    warn_if_insecure()
     db_ok = await check_db_connection()
     logger.info("数据库连通性: {}", "ok" if db_ok else "unavailable(将在实际查询时重试)")
     yield
@@ -72,6 +75,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     app.include_router(health_router)
+    app.include_router(admin_auth_router)
     app.include_router(documents_router)
     app.include_router(chat_router)
     app.include_router(mock_api_router)

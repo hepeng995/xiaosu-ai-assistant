@@ -1,7 +1,10 @@
 /**
  * 后端 API 客户端封装。
  * base url 来自构建期注入的 NEXT_PUBLIC_API_BASE_URL。
+ * 所有 admin 请求自动注入 JWT（Authorization: Bearer）；401 时清除 token 触发跳登录。
  */
+import { clearToken, getToken } from "@/lib/auth";
+
 const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 
 export interface DocumentItem {
@@ -73,10 +76,18 @@ interface StreamHandlers {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-    ...init,
-  });
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...((init?.headers as Record<string, string> | undefined) ?? {}),
+  };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const response = await fetch(`${BASE_URL}${path}`, { ...init, headers });
+  // 401：token 缺失/过期/无效，清除后由 admin 守卫跳登录
+  if (response.status === 401) {
+    clearToken();
+    throw new Error("登录已过期，请重新登录");
+  }
   if (!response.ok) {
     throw new Error(`请求失败 ${response.status}`);
   }
@@ -100,16 +111,38 @@ function referenceList(value: unknown): ReferenceItem[] {
 export const api = {
   health: () => request<{ status: string; service: string }>("/health"),
 
+  auth: {
+    login: (username: string, password: string) =>
+      request<{
+        access_token: string;
+        token_type: string;
+        expires_in: number;
+        username: string;
+      }>("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({ username, password }),
+      }),
+    me: () => request<{ username: string; role: string }>("/api/auth/me"),
+  },
+
   documents: {
     list: () => request<{ items: DocumentItem[]; total: number }>("/api/admin/documents"),
     upload: (file: File, waitForIndex = false) => {
       const form = new FormData();
       form.append("file", file);
       const search = waitForIndex ? "?wait_for_index=true" : "";
+      const uploadHeaders: Record<string, string> = {};
+      const uploadToken = getToken();
+      if (uploadToken) uploadHeaders["Authorization"] = `Bearer ${uploadToken}`;
       return fetch(`${BASE_URL}/api/admin/documents${search}`, {
         method: "POST",
         body: form,
+        headers: uploadHeaders,
       }).then((r) => {
+        if (r.status === 401) {
+          clearToken();
+          throw new Error("登录已过期，请重新登录");
+        }
         if (!r.ok) throw new Error("上传失败");
         return r.json() as Promise<DocumentItem>;
       });
@@ -152,9 +185,12 @@ export const api = {
         }),
       }),
     stream: async (message: string, handlers: StreamHandlers = {}): Promise<ChatResult> => {
+      const streamHeaders: Record<string, string> = { "Content-Type": "application/json" };
+      const streamToken = getToken();
+      if (streamToken) streamHeaders["Authorization"] = `Bearer ${streamToken}`;
       const response = await fetch(`${BASE_URL}/api/chat/stream`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: streamHeaders,
         body: JSON.stringify({
           platform: "web",
           conversation_id: "debug",
@@ -162,6 +198,10 @@ export const api = {
           message,
         }),
       });
+      if (response.status === 401) {
+        clearToken();
+        throw new Error("登录已过期，请重新登录");
+      }
       if (!response.ok || !response.body) {
         throw new Error(`请求失败 ${response.status}`);
       }

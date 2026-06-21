@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Bug,
   FileText,
   LayoutDashboard,
+  LogOut,
   Menu,
   MessageSquare,
   Settings,
@@ -14,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { ThemeToggle } from "@/components/admin/theme-toggle";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -36,7 +38,25 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { isAuthenticated, logout } = useAuth();
   const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.replace("/login");
+    }
+  }, [isAuthenticated, router]);
+
+  const handleLogout = () => {
+    logout();
+    router.replace("/login");
+  };
+
+  // 未登录（含 SSR 首屏 token=null）不渲染后台内容，等待跳登录
+  if (!isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="flex min-h-screen bg-muted/40">
@@ -92,6 +112,18 @@ export default function AdminLayout({
             );
           })}
         </nav>
+
+        {/* 退出登录 */}
+        <div className="border-t border-border p-3">
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+          >
+            <LogOut className="h-4 w-4 shrink-0" />
+            退出登录
+          </button>
+        </div>
 
         {/* 运行状态 + 主题切换 */}
         <div className="border-t border-border px-5 py-4">

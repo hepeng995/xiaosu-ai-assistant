@@ -9,9 +9,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.errors import AppException
+from app.core.security import create_access_token
 from app.llm.openai_compatible import llm_service
 from app.main import app
 from app.services import setting_service
+
+
+def _admin_auth_header() -> dict[str, str]:
+    """生成管理后台鉴权头（直接签发 token，不依赖登录兜底密码）。"""
+    token, _ = create_access_token("admin")
+    return {"Authorization": f"Bearer {token}"}
 
 
 class _FakeResult:
@@ -119,7 +126,7 @@ async def test_effective_model_uses_override(monkeypatch: pytest.MonkeyPatch) ->
 
 
 def test_get_model_endpoint_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GET /api/admin/settings/model 路由可达，返回 active/default。"""
+    """GET /api/admin/settings/model 路由可达（需鉴权），返回 active/default。"""
 
     async def fake_get() -> None:
         return None
@@ -128,7 +135,7 @@ def test_get_model_endpoint_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
         "app.api.routes_admin_settings.setting_service.get_active_model", fake_get
     )
     client = TestClient(app)
-    resp = client.get("/api/admin/settings/model")
+    resp = client.get("/api/admin/settings/model", headers=_admin_auth_header())
     assert resp.status_code == 200
     body = resp.json()
     assert body["active_model"] is None
@@ -136,8 +143,17 @@ def test_get_model_endpoint_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_switch_model_endpoint_validates(monkeypatch: pytest.MonkeyPatch) -> None:
-    """PUT /api/admin/settings/model 非法模型名应返回 400 友好结构。"""
+    """PUT /api/admin/settings/model 需鉴权；带 token 后非法模型名应返回 400 友好结构。"""
     client = TestClient(app)
-    resp = client.put("/api/admin/settings/model", json={"model": "bad;model"})
+    # 无 token 应先被鉴权拦截（401）
+    assert (
+        client.put("/api/admin/settings/model", json={"model": "bad;model"}).status_code
+        == 401
+    )
+    resp = client.put(
+        "/api/admin/settings/model",
+        json={"model": "bad;model"},
+        headers=_admin_auth_header(),
+    )
     assert resp.status_code == 400
     assert resp.json()["success"] is False
