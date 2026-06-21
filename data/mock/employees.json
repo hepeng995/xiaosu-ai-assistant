@@ -2,5 +2,13 @@
   {"id": "001", "name": "张三", "dept": "研发部", "level": "P5", "manager": "王经理"},
   {"id": "002", "name": "李四", "dept": "市场部", "level": "P6", "manager": "刘总监"},
   {"id": "003", "name": "王五", "dept": "研发部", "level": "P4", "manager": "王经理"},
-  {"id": "004", "name": "赵六", "dept": "财务部", "level": "P5", "manager": "孙经理"}
+  {"id": "004", "name": "赵六", "dept": "财务部", "level": "P5", "manager": "孙经理"},
+  {"id": "005", "name": "陈七", "dept": "人事部", "level": "P6", "manager": "周主管"},
+  {"id": "006", "name": "孙八", "dept": "财务部", "level": "P7", "manager": "孙经理"},
+  {"id": "007", "name": "周九", "dept": "人事部", "level": "P4", "manager": "周主管"},
+  {"id": "008", "name": "吴十", "dept": "运营部", "level": "P5", "manager": "郑经理"},
+  {"id": "009", "name": "郑十一", "dept": "研发部", "level": "P3", "manager": "王经理"},
+  {"id": "010", "name": "王十二", "dept": "市场部", "level": "P5", "manager": "刘总监"},
+  {"id": "011", "name": "冯十三", "dept": "研发部", "level": "P6", "manager": "王经理"},
+  {"id": "012", "name": "褚十四", "dept": "运营部", "level": "P7", "manager": "郑经理"}
 ]
