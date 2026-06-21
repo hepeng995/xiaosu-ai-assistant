@@ -37,6 +37,7 @@ class ModelSwitchRequest(BaseModel):
 @router.get("", dependencies=[Depends(require_admin)])
 async def get_settings_status() -> dict:
     """返回各配置项的就绪状态（敏感值只显示已配置/未配置）。"""
+    rag_runtime = await setting_service.get_rag_params()
     return {
         "llm": {
             "provider": settings.LLM_PROVIDER,
@@ -50,8 +51,10 @@ async def get_settings_status() -> dict:
             "api_key_configured": settings.is_secret_configured(settings.EMBEDDING_API_KEY),
         },
         "rag": {
-            "top_k": settings.RAG_TOP_K,
-            "score_threshold": settings.RAG_SCORE_THRESHOLD,
+            "top_k": rag_runtime.get("top_k", settings.RAG_TOP_K),
+            "score_threshold": rag_runtime.get(
+                "score_threshold", settings.RAG_SCORE_THRESHOLD
+            ),
             "chunk_size": settings.RAG_CHUNK_SIZE,
         },
         "dingtalk": {
@@ -99,6 +102,20 @@ async def switch_model(req: ModelSwitchRequest) -> dict:
     """设置运行时激活模型（校验后持久化），未配置 key 时亦可设置（待 key 就绪后生效）。"""
     saved = await setting_service.set_active_model(req.model)
     return {"active_model": saved, "default_model": settings.LLM_MODEL}
+
+
+class RagParamsRequest(BaseModel):
+    """RAG 检索参数（运行时可调，立即对后续检索生效）。"""
+
+    top_k: int = Field(..., ge=1, le=50)
+    score_threshold: float = Field(..., ge=0, le=1)
+
+
+@router.put("/params", dependencies=[Depends(require_admin)])
+async def update_rag_params(req: RagParamsRequest) -> dict:
+    """更新运行时 RAG 参数（top_k / score_threshold），校验后持久化并立即生效。"""
+    saved = await setting_service.set_rag_params(req.top_k, req.score_threshold)
+    return {"rag": saved}
 
 
 # ---------- 管理员认证 ----------

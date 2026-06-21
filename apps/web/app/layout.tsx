@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, JetBrains_Mono } from "next/font/google";
 import { Toaster } from "sonner";
+import { Providers } from "./providers";
 import "./globals.css";
 
 // 拉丁字体自托管（避免 Google CDN 阻塞国内首屏）；中文 Noto Serif SC 仍走 CDN（大字体）
@@ -46,7 +47,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col">
-        {children}
+        <Providers>{children}</Providers>
         <Toaster richColors position="top-center" closeButton toastOptions={{ duration: 3500 }} />
       </body>
     </html>

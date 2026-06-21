@@ -32,6 +32,9 @@ export default function SettingsPage() {
   const [modelDefault, setModelDefault] = useState<string>("");
   const [modelInput, setModelInput] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
+  const [ragTopK, setRagTopK] = useState("");
+  const [ragThreshold, setRagThreshold] = useState("");
+  const [ragSaving, setRagSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -43,6 +46,8 @@ export default function SettingsPage() {
       const fs = data.feishu as Record<string, unknown>;
       const ag = data.agent as Record<string, unknown>;
       const obs = data.observability as Record<string, unknown>;
+      setRagTopK(String(rag.top_k ?? ""));
+      setRagThreshold(String(rag.score_threshold ?? ""));
       setGroups([
         {
           title: "LLM 模型",
@@ -187,6 +192,25 @@ export default function SettingsPage() {
     }
   };
 
+  const saveRag = async () => {
+    const topK = parseInt(ragTopK, 10);
+    const threshold = parseFloat(ragThreshold);
+    if (Number.isNaN(topK) || Number.isNaN(threshold)) {
+      toast.error("请输入有效数字");
+      return;
+    }
+    setRagSaving(true);
+    try {
+      await api.settings.putParams(topK, threshold);
+      toast.success("RAG 参数已更新，后续检索立即生效");
+      load();
+    } catch {
+      toast.error("保存失败（top_k 须 1-50，threshold 须 0-1）");
+    } finally {
+      setRagSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -233,6 +257,42 @@ export default function SettingsPage() {
           <p className="text-xs text-muted-foreground">
             仅切换模型名；API Key / Base URL 仍走环境变量。未配置 key 时对话走 mock。
           </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="p-4 sm:p-6">
+          <CardTitle className="text-base">RAG 检索参数（运行时可调，立即生效）</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 p-4 pt-0 sm:p-6 sm:pt-0">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <label htmlFor="rag-top-k" className="text-xs text-muted-foreground">
+                Top K（召回数 1-50）
+              </label>
+              <Input
+                id="rag-top-k"
+                type="number"
+                value={ragTopK}
+                onChange={(e) => setRagTopK(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="rag-threshold" className="text-xs text-muted-foreground">
+                Score 阈值（0-1）
+              </label>
+              <Input
+                id="rag-threshold"
+                type="number"
+                step="0.01"
+                value={ragThreshold}
+                onChange={(e) => setRagThreshold(e.target.value)}
+              />
+            </div>
+          </div>
+          <Button onClick={saveRag} disabled={ragSaving}>
+            {ragSaving ? "保存中…" : "保存参数"}
+          </Button>
         </CardContent>
       </Card>
 

@@ -98,3 +98,25 @@ async def set_active_model(model: str) -> str:
             "运行时激活的 LLM 模型名（覆盖 LLM_MODEL 默认值）",
         )
     return model
+
+
+_RAG_PARAMS_KEY = "rag_params"
+
+
+async def get_rag_params() -> dict[str, Any]:
+    """读取运行时 RAG 参数（top_k/score_threshold）；未设置返回空 dict，调用方回退默认。"""
+    async with AsyncSessionLocal() as session:
+        value = await get_setting(session, _RAG_PARAMS_KEY)
+    return value if isinstance(value, dict) else {}
+
+
+async def set_rag_params(top_k: int, score_threshold: float) -> dict[str, Any]:
+    """写入运行时 RAG 参数（校验后持久化），立即对后续检索生效。"""
+    if not 1 <= top_k <= 50:
+        raise AppException(ErrorCode.UNKNOWN_ERROR, "top_k 须在 1~50 之间", 400)
+    if not 0 <= score_threshold <= 1:
+        raise AppException(ErrorCode.UNKNOWN_ERROR, "score_threshold 须在 0~1 之间", 400)
+    merged = {"top_k": top_k, "score_threshold": score_threshold}
+    async with AsyncSessionLocal() as session:
+        await upsert_setting(session, _RAG_PARAMS_KEY, merged, "运行时 RAG 检索参数")
+    return merged

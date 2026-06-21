@@ -53,6 +53,8 @@ export default function LogsPage() {
   const [platformFilter, setPlatformFilter] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
 
   const load = useCallback(async () => {
     try {
@@ -92,6 +94,10 @@ export default function LogsPage() {
       platformFilter === "all" || m.platform === platformFilter;
     return matchSearch && matchStatus && matchPlatform;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paged = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div className="space-y-4">
@@ -154,7 +160,7 @@ export default function LogsPage() {
             </CardContent>
           </Card>
         ) : (
-          filtered.map((m) => {
+          paged.map((m) => {
             const tools = toolNames(m);
             return (
               <Card key={m.id} className="corner-frame">
@@ -231,7 +237,7 @@ export default function LogsPage() {
                   </TableRow>
                 ))
               ) : (
-                filtered.flatMap((m) => {
+                paged.flatMap((m) => {
                   const tools = toolNames(m);
                   const expanded = expandedId === m.id;
                   return [
@@ -292,6 +298,32 @@ export default function LogsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {totalPages > 1 && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-mono text-xs text-muted-foreground">
+            第 {currentPage} / {totalPages} 页 · 共 {filtered.length} 条
+          </p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage <= 1}
+              onClick={() => setPage(currentPage - 1)}
+            >
+              上一页
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage >= totalPages}
+              onClick={() => setPage(currentPage + 1)}
+            >
+              下一页
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

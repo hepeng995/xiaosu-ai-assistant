@@ -171,6 +171,14 @@ export const api = {
         "/api/admin/settings/model",
         { method: "PUT", body: JSON.stringify({ model }) },
       ),
+    putParams: (topK: number, scoreThreshold: number) =>
+      request<{ rag: { top_k: number; score_threshold: number } }>(
+        "/api/admin/settings/params",
+        {
+          method: "PUT",
+          body: JSON.stringify({ top_k: topK, score_threshold: scoreThreshold }),
+        },
+      ),
   },
 
   chat: {

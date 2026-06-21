@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import settings
 from app.core.observability import trace_span
 from app.llm.embedding import embedding_service
+from app.services import setting_service
 
 # 真实模式：余弦相似度检索
 _VECTOR_SQL = text(
@@ -59,16 +60,22 @@ def _row_to_item(row: Mapping, score: float) -> dict:
 async def search_knowledge(
     query: str, session: AsyncSession, top_k: int | None = None
 ) -> list[dict]:
-    """检索知识库：真实走 pgvector，mock 走字符重叠。"""
-    top_k = top_k or settings.RAG_TOP_K
+    """检索知识库：真实走 pgvector，mock 走字符重叠。RAG 参数优先读运行时配置。"""
+    rag = await setting_service.get_rag_params()
+    top_k = top_k or rag.get("top_k") or settings.RAG_TOP_K
+    threshold = float(rag.get("score_threshold", settings.RAG_SCORE_THRESHOLD))
     with trace_span(
         "retrieval_search",
-        metadata={"top_k": top_k, "mode": "mock" if embedding_service.use_mock else "vector"},
+        metadata={
+            "top_k": top_k,
+            "threshold": threshold,
+            "mode": "mock" if embedding_service.use_mock else "vector",
+        },
     ) as span:
         if embedding_service.use_mock:
             items = await _mock_search(query, session, top_k)
         else:
-            items = await _vector_search(query, session, top_k)
+            items = await _vector_search(query, session, top_k, threshold)
         span["metadata"] = {
             "top_k": top_k,
             "result_count": len(items),
@@ -77,14 +84,16 @@ async def search_knowledge(
         return items
 
 
-async def _vector_search(query: str, session: AsyncSession, top_k: int) -> list[dict]:
+async def _vector_search(
+    query: str, session: AsyncSession, top_k: int, threshold: float
+) -> list[dict]:
     query_emb = await embedding_service.embed_query(query)
     emb_str = "[" + ",".join(f"{x:.7f}" for x in query_emb) + "]"
     result = await session.execute(_VECTOR_SQL, {"emb": emb_str, "top_k": top_k})
     items: list[dict] = []
     for row in result.mappings():
         score = float(row["score"])
-        if score >= settings.RAG_SCORE_THRESHOLD:
+        if score >= threshold:
             items.append(_row_to_item(row, score))
     return items
 

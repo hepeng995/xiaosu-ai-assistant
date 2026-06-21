@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 
 interface ConfirmDialogProps {
@@ -26,10 +26,30 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const dialogRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
+    const dialog = dialogRef.current;
+    const focusable = dialog?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    focusable?.[0]?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onCancel();
+      if (e.key === "Escape") {
+        onCancel();
+        return;
+      }
+      // 焦点陷阱：Tab/Shift+Tab 圈定在对话框内
+      if (e.key !== "Tab" || !focusable || focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -45,6 +65,7 @@ export function ConfirmDialog({
         aria-hidden="true"
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"

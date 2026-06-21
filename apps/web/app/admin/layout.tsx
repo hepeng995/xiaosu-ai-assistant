@@ -60,6 +60,12 @@ export default function AdminLayout({
 
   return (
     <div className="relative flex min-h-dvh">
+      <a
+        href="#content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded-md focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+      >
+        跳到主内容
+      </a>
       {/* 侧边栏：移动端为抽屉，桌面端（md+）固定 */}
       <aside
         className={cn(
@@ -96,7 +102,7 @@ export default function AdminLayout({
         </div>
 
         {/* 导航 —— 编号 + 活跃竖条指示 */}
-        <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
+        <nav aria-label="主导航" className="flex-1 space-y-1 overflow-y-auto px-3 py-5">
           <div className="mb-2 px-3 font-mono text-[10px] uppercase tracking-[0.2em] text-muted-foreground/60">
             Navigate
           </div>
@@ -204,7 +210,9 @@ export default function AdminLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 lg:p-8">{children}</main>
+        <main id="content" className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 lg:p-8">
+          {children}
+        </main>
       </div>
     </div>
   );
