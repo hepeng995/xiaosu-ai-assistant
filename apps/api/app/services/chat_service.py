@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.agent import PreparedAgentResult, prepare_response_stream
 from app.agents.agent import run as agent_run
+from app.agents.greeting import build_greeting_reply, is_greeting
 from app.agents.prompts import REFUSAL_NO_RESULT, REFUSAL_PRIVACY, SENSITIVE_KEYWORDS
 from app.core.config import settings
 from app.core.errors import ErrorCode
@@ -88,6 +89,35 @@ async def chat(
             "tool_calls": [],
             "usage": {},
             "refused": True,
+        }
+
+    # 基础前置：纯问候语直接角色化打招呼，跳过 Agent（省 token，Mock/真实行为一致）
+    # 仅匹配「问候词 + 语气标点」整串；含实质内容（「你好，报销流程？」）一律放行
+    if is_greeting(message):
+        greeting = build_greeting_reply()
+        await save_message(conv.id, "user", message, session)
+        latency_ms = int((time.time() - start) * 1000)
+        await save_message(
+            conv.id,
+            "assistant",
+            greeting,
+            session,
+            success=True,
+            latency_ms=latency_ms,
+        )
+        span_state["metadata"] = {
+            "platform": platform,
+            "conversation_id": conversation_id,
+            "greeting": True,
+            "latency_ms": latency_ms,
+        }
+        chat_span.__exit__(None, None, None)
+        return {
+            "answer": greeting,
+            "references": [],
+            "tool_calls": [],
+            "usage": {},
+            "refused": False,
         }
 
     # 历史上下文
@@ -219,6 +249,25 @@ async def stream_chat(
             yield event
         yield {"event": "references", "data": {"references": []}}
         yield {"event": "done", "data": {"success": False, "refused": True}}
+        return
+
+    # 基础前置：纯问候语直接角色化打招呼，跳过 Agent（流式路径同步短路）
+    if is_greeting(message):
+        greeting = build_greeting_reply()
+        await save_message(conv.id, "user", message, session)
+        latency_ms = int((time.time() - start) * 1000)
+        await save_message(
+            conv.id,
+            "assistant",
+            greeting,
+            session,
+            success=True,
+            latency_ms=latency_ms,
+        )
+        async for event in _emit_text(greeting):
+            yield event
+        yield {"event": "references", "data": {"references": []}}
+        yield {"event": "done", "data": {"success": True, "refused": False}}
         return
 
     history = await get_recent_messages(conv.id, session)
