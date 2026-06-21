@@ -79,3 +79,7 @@ AI 助手开发文档.md
 # 本地工具产物与内部文档目录（spec-workflow 模板 / 设计文档 / 联调记录，不入库）
 .spec-workflow/
 docs/
+
+# ---------- 测试文件（本地保留，不入库）----------
+# 测试用例仅本地跑 pytest 验证，不进入 GitHub 仓库
+apps/api/tests/
