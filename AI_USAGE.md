@@ -71,6 +71,25 @@ AI 生成了 `agents/agent.py`：把 5 个工具的 Schema 交给 LLM，由 LLM 
 - **分文件日志**：新增 `llm.log` / `im.log` / `indexing.log` / `tool.log`，不记录明文密钥和完整长 Prompt。
 - **可观测性预留**：增加 Langfuse 配置开关，未配置时 noop；真实 key 联调仍由交付前手动执行。
 
+## 11. 多轮 RAG 陷阱：同问题第二次问竟拒答（真实联调暴露 + AI 协助诊断）
+
+**现象（真实联调复现）**：Web 调试页第一次问「竞业限制有多久」→ 正确回答 + 3 条引用；紧接着第二次问**完全相同**的问题 → 反而拒答「知识库没有找到相关内容」。同一问题同一知识库，结果不稳定，直接踩中评分红线（RAG 必带引用 + 稳定可复现）。
+
+**根因（AI 协助逐层排查）**：
+1. 先怀疑检索层不稳定——读 `retrieval_service._vector_search`：query 原文 embedding + pgvector 余弦，**同 query 必同结果**，排除。
+2. 再看 `chat_service` 拒答判断：`not has_external_tool and not references → REFUSAL_NO_RESULT`。
+3. 真正根因：第二轮 conversation 带着第一轮的完整答案 history，**真实 LLM 看到「已经答过了」就直接复述、不再调用 `search_knowledge_base`** → `references` 字段为空 → 误判拒答。这是 RAG 多轮的经典陷阱，单轮单测根本暴露不了。
+
+**为什么 AI 生成的测试没覆盖**：既有测试全是「空 history + 单轮」，AI 也不会主动想到「同问题连问两次」这个反直觉场景——这正是 AI 生成测试的盲区，**必须靠真实联调才能暴露**。
+
+**修复（双管齐下，commit 83c5191）**：
+- Prompt 层：SYSTEM_PROMPT 加**铁律 8**「每次回答知识库问题都必须重新检索，引用必须反映本次检索」。
+- 工程兜底：`agent.py` 主循环**第一轮空 tool_calls 时追加 `RETRIEVAL_NUDGE`** 让 LLM 重新检索（仅 `_round==0` 触发一次，不死循环；LLM 仍自主决策，不碰「工具选择禁硬编码」红线）。
+
+**验证**：新增 `test_agent_multiturn_regression` 3 条（nudge 触发 / 不误伤正常流程 / 只 nudge 一次不死循环）+ 全量 116 passed；真实环境连问两次确认第二次也带引用。
+
+**复盘**：RAG 的多轮测试**必须覆盖「重复提问」「追问改写」**两类场景，不能只靠 prompt 约束 LLM——必须有工程兜底；这个 bug 只在真实 LLM + 真实 history 下才暴露，再次印证「真实联调不可省」。
+
 ## 关键踩坑（AI 协助排查）
 
 | 问题 | 原因 | 解决 |
