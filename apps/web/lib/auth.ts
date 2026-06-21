@@ -11,6 +11,18 @@ import { useCallback, useSyncExternalStore } from "react";
  */
 
 const TOKEN_STORAGE_KEY = "xiaosu-token";
+// 同步写一份 cookie 供 middleware.ts 在 SSR 层做路由守卫（消除首屏白屏闪）
+const TOKEN_COOKIE = "xiaosu-token";
+const TOKEN_COOKIE_MAX_AGE = 60 * 60 * 24 * 7; // 7 天；实际鉴权仍由后端 JWT 过期校验
+
+function writeCookie(token: string): void {
+  // JWT 字符集（base64url + 点号）在 cookie 值中合法，无需 encode
+  document.cookie = `${TOKEN_COOKIE}=${token}; path=/; max-age=${TOKEN_COOKIE_MAX_AGE}; SameSite=Lax`;
+}
+
+function clearCookie(): void {
+  document.cookie = `${TOKEN_COOKIE}=; path=/; max-age=0; SameSite=Lax`;
+}
 
 function readToken(): string | null {
   try {
@@ -48,12 +60,14 @@ export function getToken(): string | null {
 /** 持久化 token 并通知所有订阅者。 */
 export function setToken(token: string): void {
   window.localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  writeCookie(token);
   notify();
 }
 
 /** 清除 token（登出 / 401 失效）并通知所有订阅者。 */
 export function clearToken(): void {
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  clearCookie();
   notify();
 }
 

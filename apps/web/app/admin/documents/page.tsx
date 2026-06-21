@@ -28,6 +28,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { errorMessage, fileSize } from "@/lib/format";
+import { toast } from "sonner";
+import { ErrorBanner } from "@/components/admin/error-banner";
 import { cn } from "@/lib/utils";
 
 const STATUS_CLASS: Record<string, string> = {
@@ -48,7 +50,7 @@ const STATUS_FILTERS = [
 export default function DocumentsPage() {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [confirmTarget, setConfirmTarget] = useState<{
@@ -62,7 +64,7 @@ export default function DocumentsPage() {
       const data = await api.documents.list();
       setDocs(data.items);
     } catch (e) {
-      setMsg(errorMessage(e));
+      setLoadError(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -88,20 +90,20 @@ export default function DocumentsPage() {
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setMsg(`上传中：${file.name}，正在等待索引完成`);
+    const tid = toast.loading(`上传中：${file.name}…`);
     try {
       const doc = await api.documents.upload(file, true);
       if (doc.status === "indexed") {
-        setMsg(`已索引：${file.name}，现在可以在 IM 中提问`);
+        toast.success(`已索引：${file.name}，可在 IM 中提问`, { id: tid });
       } else if (doc.status === "failed") {
-        setMsg(`索引失败：${doc.error_message ?? file.name}`);
+        toast.error(`索引失败：${doc.error_message ?? file.name}`, { id: tid });
       } else {
-        setMsg(`已上传：${file.name}，当前状态 ${doc.status}`);
+        toast.success(`已上传：${file.name}（${doc.status}）`, { id: tid });
       }
       if (fileRef.current) fileRef.current.value = "";
       load();
     } catch (e) {
-      setMsg(errorMessage(e));
+      toast.error(errorMessage(e), { id: tid });
     }
   };
 
@@ -111,20 +113,21 @@ export default function DocumentsPage() {
     setConfirmTarget(null);
     try {
       await api.documents.remove(id);
-      setMsg(`已删除：${name}`);
+      toast.success(`已删除：${name}`);
       load();
     } catch (e) {
-      setMsg(errorMessage(e));
+      toast.error(errorMessage(e));
     }
   };
 
   const handleReindex = async (id: string, name: string) => {
-    setMsg(`正在重新索引：${name}`);
+    const tid = toast.loading(`重新索引：${name}…`);
     try {
       await api.documents.reindex(id);
+      toast.success(`已触发重新索引：${name}`, { id: tid });
       load();
     } catch (e) {
-      setMsg(errorMessage(e));
+      toast.error(errorMessage(e), { id: tid });
     }
   };
 
@@ -175,7 +178,7 @@ export default function DocumentsPage() {
         />
       </div>
 
-      {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
+      {loadError && <ErrorBanner message={loadError} />}
 
       <div className="space-y-3 md:hidden">
         {loading ? (

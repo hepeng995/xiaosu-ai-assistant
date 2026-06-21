@@ -9,6 +9,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/format";
+import { toast } from "sonner";
+import { ErrorBanner } from "@/components/admin/error-banner";
 
 interface SettingItem {
   label: string;
@@ -30,7 +32,6 @@ export default function SettingsPage() {
   const [modelDefault, setModelDefault] = useState<string>("");
   const [modelInput, setModelInput] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
-  const [modelMsg, setModelMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -175,13 +176,12 @@ export default function SettingsPage() {
   const saveModel = async () => {
     if (!modelInput.trim()) return;
     setModelSaving(true);
-    setModelMsg(null);
     try {
       const d = await api.settings.putModel(modelInput.trim());
       setModelActive(d.active_model);
-      setModelMsg({ ok: true, text: `已切换为 ${d.active_model}，新对话生效` });
+      toast.success(`已切换为 ${d.active_model}，新对话生效`);
     } catch {
-      setModelMsg({ ok: false, text: "保存失败，请检查模型名是否合法" });
+      toast.error("保存失败，请检查模型名是否合法");
     } finally {
       setModelSaving(false);
     }
@@ -202,7 +202,7 @@ export default function SettingsPage() {
         </span>
       </p>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <ErrorBanner message={error} />}
 
       <Card>
         <CardHeader className="p-4 sm:p-6">
@@ -230,11 +230,6 @@ export default function SettingsPage() {
               {modelSaving ? "保存中…" : "保存"}
             </Button>
           </div>
-          {modelMsg && (
-            <p className={`text-sm ${modelMsg.ok ? "text-success" : "text-destructive"}`}>
-              {modelMsg.text}
-            </p>
-          )}
           <p className="text-xs text-muted-foreground">
             仅切换模型名；API Key / Base URL 仍走环境变量。未配置 key 时对话走 mock。
           </p>

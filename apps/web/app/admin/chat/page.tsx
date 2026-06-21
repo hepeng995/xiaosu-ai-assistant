@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/format";
+import { toast } from "sonner";
 
 const EMPTY_RESULT: ChatResult = {
   answer: "",
@@ -18,19 +19,47 @@ const EMPTY_RESULT: ChatResult = {
   refused: false,
 };
 
+// 提问示例（覆盖知识库问答 / 工具调用 / 拒答边界，方便演示与自测）
+const EXAMPLE_GROUPS: { title: string; items: { label: string; question: string }[] }[] = [
+  {
+    title: "📚 知识库问答",
+    items: [
+      { label: "年假天数", question: "员工每年有几天年假？" },
+      { label: "报销材料", question: "报销发票需要什么材料？" },
+      { label: "入职流程", question: "新人入职第一天要做哪些事？" },
+      { label: "竞业限制", question: "竞业限制期限最长是多久？" },
+    ],
+  },
+  {
+    title: "🔧 工具调用",
+    items: [
+      { label: "员工 001", question: "员工 001 是哪个部门的？" },
+      { label: "上周订单", question: "上周一共多少订单？" },
+      { label: "现在时间", question: "现在几点？" },
+    ],
+  },
+  {
+    title: "🚫 拒答边界",
+    items: [
+      { label: "CEO 住址", question: "我们公司 CEO 的家庭住址是？" },
+      { label: "2030 目标", question: "2030 年的销售目标是多少？" },
+    ],
+  },
+];
+
 export default function ChatPage() {
   const [input, setInput] = useState("");
   const [result, setResult] = useState<ChatResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
-  const send = async () => {
-    if (!input.trim()) return;
+  const send = async (question?: string) => {
+    const q = (question ?? input).trim();
+    if (!q) return;
+    if (question && question !== input) setInput(question);
     setLoading(true);
-    setError("");
     setResult({ ...EMPTY_RESULT });
     try {
-      const r = await api.chat.stream(input, {
+      const r = await api.chat.stream(q, {
         onToken: (token) =>
           setResult((prev) => ({
             ...(prev ?? EMPTY_RESULT),
@@ -43,7 +72,7 @@ export default function ChatPage() {
       });
       setResult((prev) => ({ ...r, answer: prev?.answer || r.answer }));
     } catch (e) {
-      setError(errorMessage(e));
+      toast.error(errorMessage(e));
     } finally {
       setLoading(false);
     }
@@ -58,6 +87,28 @@ export default function ChatPage() {
         title="调试聊天"
         description="在 Web 端测试 RAG 检索与工具调用"
       />
+
+      <div className="space-y-3">
+        {EXAMPLE_GROUPS.map((group) => (
+          <div key={group.title} className="space-y-1.5">
+            <p className="text-xs text-muted-foreground">{group.title}</p>
+            <div className="flex flex-wrap gap-2">
+              {group.items.map((item) => (
+                <Button
+                  key={item.label}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => send(item.question)}
+                  disabled={loading}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           placeholder="输入问题，如：员工每年有几天年假？"
@@ -65,12 +116,10 @@ export default function ChatPage() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
         />
-        <Button className="w-full sm:w-auto" onClick={send} disabled={loading}>
+        <Button className="w-full sm:w-auto" onClick={() => send()} disabled={loading}>
           {loading ? "发送中…" : "发送"}
         </Button>
       </div>
-
-      {error && <p className="text-sm text-destructive">{error}</p>}
 
       {result && (
         <div className="space-y-3">
