@@ -6,6 +6,7 @@
 import json
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +44,22 @@ def _merge_usage(total: dict, usage: dict) -> dict:
     for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
         merged[key] = int(merged.get(key, 0) or 0) + int(usage.get(key, 0) or 0)
     return merged
+
+
+def _compact_tool_payload(payload: Any, limit: int = 1500) -> str:
+    """序列化工具结果回填 LLM；含 ``summary`` 的结构把汇总前置，避免 items 过长截断汇总。
+
+    orders/attendance 等 mock_api 返回 ``{items:[...], summary:{...}}``，summary 排在末尾。
+    当 items 较多时整体序列化在 ``limit`` 处截断会丢掉末尾的聚合数据（net_amount / work_days）。
+    这里把 summary 重排到最前，保证即使截断也先损失明细尾部而非关键汇总。
+    """
+    if isinstance(payload, dict) and isinstance(payload.get("summary"), (dict, list)):
+        ordered: dict[str, Any] = {"summary": payload["summary"]}
+        for key, value in payload.items():
+            if key != "summary":
+                ordered[key] = value
+        return json.dumps(ordered, ensure_ascii=False, default=str)[:limit]
+    return json.dumps(payload, ensure_ascii=False, default=str)[:limit]
 
 
 async def prepare_response(
@@ -104,7 +121,7 @@ async def prepare_response(
                 {
                     "role": "tool",
                     "tool_call_id": tc.get("id", ""),
-                    "content": json.dumps(payload, ensure_ascii=False, default=str)[:1500],
+                    "content": _compact_tool_payload(payload),
                 }
             )
 

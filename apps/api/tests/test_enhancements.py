@@ -11,8 +11,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agents import tool_registry
-from app.api import routes_admin_documents, routes_chat
-from app.api.routes_admin_logs import list_messages
+from app.api import routes_chat
+from app.api.admin import documents as routes_admin_documents
+from app.api.admin.logs import list_messages
 from app.core import observability, pricing
 from app.core.errors import ErrorCode
 from app.main import app

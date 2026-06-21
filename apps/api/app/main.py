@@ -8,10 +8,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
-from app.api.routes_admin_documents import router as documents_router
-from app.api.routes_admin_logs import router as admin_logs_router
-from app.api.routes_admin_settings import auth_router as admin_auth_router
-from app.api.routes_admin_settings import router as admin_settings_router
+from app.api.admin.documents import router as documents_router
+from app.api.admin.logs import router as admin_logs_router
+from app.api.admin.settings import auth_router as admin_auth_router
+from app.api.admin.settings import router as admin_settings_router
 from app.api.routes_chat import router as chat_router
 from app.api.routes_health import router as health_router
 from app.api.routes_im import dingtalk_router as im_dingtalk_router
@@ -42,10 +42,11 @@ def create_app() -> FastAPI:
     """创建并装配 FastAPI 应用。"""
     app = FastAPI(title=settings.APP_NAME, version="0.1.0", lifespan=lifespan)
 
-    # CORS（开发期宽松；上线前按 IM/Web 域名收紧）
+    # CORS：来源由 CORS_ALLOW_ORIGINS 控制（逗号分隔）；默认 * 仅开发，生产配白名单
+    cors_origins = [o.strip() for o in settings.CORS_ALLOW_ORIGINS.split(",") if o.strip()] or ["*"]
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

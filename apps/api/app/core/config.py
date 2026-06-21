@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     APP_ENV: str = "development"
     APP_HOST: str = "0.0.0.0"
     APP_PORT: int = 8000
+    # CORS 允许来源（逗号分隔）；默认 * 仅用于开发联调，生产须配白名单如 https://cafer.top
+    CORS_ALLOW_ORIGINS: str = "*"
 
     # ---------- 管理后台鉴权 ----------
     # 管理员用户名；未配置时回退 admin。生产环境务必通过环境变量覆盖。

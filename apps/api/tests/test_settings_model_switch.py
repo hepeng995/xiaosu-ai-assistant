@@ -132,7 +132,7 @@ def test_get_model_endpoint_reachable(monkeypatch: pytest.MonkeyPatch) -> None:
         return None
 
     monkeypatch.setattr(
-        "app.api.routes_admin_settings.setting_service.get_active_model", fake_get
+        "app.api.admin.settings.setting_service.get_active_model", fake_get
     )
     client = TestClient(app)
     resp = client.get("/api/admin/settings/model", headers=_admin_auth_header())
