@@ -1,5 +1,8 @@
 # 小苏 AI 助手
 
+> 🌐 **在线 Demo**：[https://cafer.top](https://cafer.top)（Web 后台 `/admin` ｜ 钉钉 + 飞书 IM 已接通）
+> 演示账号与 IM 体验群见面试沟通；本地启动见下方「安装与启动」。
+
 公司内部 AI 助手「小苏」是一套面向企业知识问答与内部系统查询的完整 Demo：员工在钉钉或飞书里 @ 机器人提问，小苏基于 RAG 知识库生成带引用的回答；当问题需要查员工、考勤、订单、当前时间等内部信息时，由自研 Tool Calling Agent 按 Tool Schema 自主选择工具；管理员通过 Web 后台维护知识库、查看对话日志、追踪 Token 与成本。
 
 项目可以在没有真实模型 Key 的情况下跑通端到端流程：`LLM_API_KEY=replace_me` 时自动启用确定性 Mock LLM 与 Mock Embedding，适合本地验收、演示和自动化测试。配置真实 OpenAI-compatible LLM / Embedding、钉钉 / 飞书密钥后，可切换到真实联调。

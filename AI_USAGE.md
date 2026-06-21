@@ -33,7 +33,7 @@ AI 生成了 `agents/agent.py`：把 5 个工具的 Schema 交给 LLM，由 LLM 
 
 ## 7. 我如何验证 AI 代码
 
-- **单元测试**：27 条 pytest（解析/工具/IM 钉钉+飞书、审计增强、SSE 降级），不依赖真实 API。
+- **单元测试**：125 条 pytest（解析 / 工具选择 / IM 钉钉+飞书 / Agent 多轮回归 / 鉴权 / SSE 降级 / Mock LLM / 流式状态），不依赖真实 API。
 - **端到端**：docker compose 起服务，curl 验证上传→indexed、年假命中带引用、员工部门选工具、多轮指代消解、无效 key 兜底。
 - **静态检查**：ruff + mypy 每阶段全绿；密钥扫描 `git log -p | grep sk-`。
 - **日志**：trace_id 贯穿，logs/app.log + error.log 可追溯。
@@ -42,7 +42,7 @@ AI 生成了 `agents/agent.py`：把 5 个工具的 Schema 交给 LLM，由 LLM 
 
 - 更早引入真实 API Key 做一次真实 function calling 验证（当前代码已支持真实分支，但真实联调留给交付前手动验收）。
 - IM 验证提前用钉钉/飞书沙箱（当前自动化测试覆盖 webhook 解析、验签、飞书解密与富文本格式化）。
-- 前端用 shadcn/ui（当前纯 Tailwind，能用但不统一）。
+- 更早把可观测性与 Evals 接到真实后端：埋点（trace_span/llm_span）与评测脚本已就绪，但全程走 noop / 结构验证；真实链路 trace 截图与答案语义准确率应与功能同步产出，而不是留到交付前补。
 
 ## 9. 飞书 IM 渠道接入（迭代增强）
 
@@ -69,7 +69,7 @@ AI 生成了 `agents/agent.py`：把 5 个工具的 Schema 交给 LLM，由 LLM 
 - **工具审计**：assistant 消息先落库，再把 `message_id` 传给 Agent，`tool_call_logs` 能追到具体回答。
 - **错误码落库**：Agent/LLM 异常回填 `LLM_AUTH_ERROR` / `LLM_TIMEOUT` / `UNKNOWN_ERROR`，工具失败映射 `TOOL_TIMEOUT` / `TOOL_ERROR`。
 - **分文件日志**：新增 `llm.log` / `im.log` / `indexing.log` / `tool.log`，不记录明文密钥和完整长 Prompt。
-- **可观测性预留**：增加 Langfuse 配置开关，未配置时 noop；真实 key 联调仍由交付前手动执行。
+- **可观测性埋点**：Langfuse 已接入全链路（`trace_span` 覆盖 chat/retrieval/tool_call，`llm_span` 覆盖 LLM/embedding，均关联中间件注入的 `trace_id`）；未配置时 noop 降级，配置真实 `LANGFUSE_*` 后可在 Langfuse 面板看到完整请求链路。
 
 ## 11. 多轮 RAG 陷阱：同问题第二次问竟拒答（真实联调暴露 + AI 协助诊断）
 
@@ -86,7 +86,7 @@ AI 生成了 `agents/agent.py`：把 5 个工具的 Schema 交给 LLM，由 LLM 
 - Prompt 层：SYSTEM_PROMPT 加**铁律 8**「每次回答知识库问题都必须重新检索，引用必须反映本次检索」。
 - 工程兜底：`agent.py` 主循环**第一轮空 tool_calls 时追加 `RETRIEVAL_NUDGE`** 让 LLM 重新检索（仅 `_round==0` 触发一次，不死循环；LLM 仍自主决策，不碰「工具选择禁硬编码」红线）。
 
-**验证**：新增 `test_agent_multiturn_regression` 3 条（nudge 触发 / 不误伤正常流程 / 只 nudge 一次不死循环）+ 全量 116 passed；真实环境连问两次确认第二次也带引用。
+**验证**：新增 `test_agent_multiturn_regression` 3 条（nudge 触发 / 不误伤正常流程 / 只 nudge 一次不死循环）+ 全量通过（用例数随迭代已增至 125 条）；真实环境连问两次确认第二次也带引用。
 
 **复盘**：RAG 的多轮测试**必须覆盖「重复提问」「追问改写」**两类场景，不能只靠 prompt 约束 LLM——必须有工程兜底；这个 bug 只在真实 LLM + 真实 history 下才暴露，再次印证「真实联调不可省」。
 
