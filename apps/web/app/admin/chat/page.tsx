@@ -1,23 +1,15 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
-import { api, type ChatResult, type ReferenceItem } from "@/lib/api";
+import { MessageSquare } from "lucide-react";
+import { api } from "@/lib/api";
 import { PageHeader } from "@/components/admin/page-header";
+import { EmptyState } from "@/components/admin/empty-state";
+import { ChatBubble, type ChatMessage } from "@/components/admin/chat-bubble";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage } from "@/lib/format";
 import { toast } from "sonner";
-
-const EMPTY_RESULT: ChatResult = {
-  answer: "",
-  references: [],
-  tool_calls: [],
-  usage: {},
-  refused: false,
-};
 
 // 提问示例（覆盖知识库问答 / 工具调用 / 拒答边界，方便演示与自测）
 const EXAMPLE_GROUPS: { title: string; items: { label: string; question: string }[] }[] = [
@@ -47,45 +39,69 @@ const EXAMPLE_GROUPS: { title: string; items: { label: string; question: string 
   },
 ];
 
+const EMPTY_ASSISTANT: ChatMessage = {
+  role: "assistant",
+  answer: "",
+  references: [],
+  tool_calls: [],
+  usage: {},
+  refused: false,
+  thinking: true,
+};
+
 export default function ChatPage() {
   const [input, setInput] = useState("");
-  const [result, setResult] = useState<ChatResult | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
 
   const send = async (question?: string) => {
     const q = (question ?? input).trim();
-    if (!q) return;
+    if (!q || loading) return;
     if (question && question !== input) setInput(question);
+
+    const assistantIdx = messages.length + 1;
+    setMessages((prev) => [
+      ...prev,
+      { ...EMPTY_ASSISTANT, thinking: false, role: "user", question: q, answer: "" },
+      { ...EMPTY_ASSISTANT },
+    ]);
+    setInput("");
     setLoading(true);
-    setResult({ ...EMPTY_RESULT });
+
+    const updateAssistant = (updater: (m: ChatMessage) => ChatMessage) =>
+      setMessages((prev) =>
+        prev.map((m, i) => (i === assistantIdx ? updater(m) : m)),
+      );
+
     try {
       const r = await api.chat.stream(q, {
         onToken: (token) =>
-          setResult((prev) => ({
-            ...(prev ?? EMPTY_RESULT),
-            answer: `${prev?.answer ?? ""}${token}`,
-          })),
-        onReferences: (references) =>
-          setResult((prev) => ({ ...(prev ?? EMPTY_RESULT), references })),
+          updateAssistant((m) => ({ ...m, answer: m.answer + token, thinking: false })),
+        onReferences: (references) => updateAssistant((m) => ({ ...m, references })),
         onDone: (done) =>
-          setResult((prev) => ({ ...(prev ?? EMPTY_RESULT), refused: done.refused })),
+          updateAssistant((m) => ({ ...m, refused: done.refused, thinking: false })),
       });
-      setResult((prev) => ({ ...r, answer: prev?.answer || r.answer }));
+      updateAssistant((m) => ({
+        ...m,
+        ...r,
+        answer: m.answer || r.answer,
+        thinking: false,
+      }));
     } catch (e) {
-      toast.error(errorMessage(e));
+      const msg = errorMessage(e);
+      updateAssistant((m) => ({ ...m, answer: msg, refused: true, thinking: false }));
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
   };
-
-  const thinking = loading && !result?.answer;
 
   return (
     <div className="space-y-4">
       <PageHeader
         eyebrow="Playground · 05"
         title="调试聊天"
-        description="在 Web 端测试 RAG 检索与工具调用"
+        description="多轮对话测试 RAG 检索与工具调用（保留上下文）"
       />
 
       <div className="space-y-3">
@@ -111,85 +127,27 @@ export default function ChatPage() {
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <Input
-          placeholder="输入问题，如：员工每年有几天年假？"
+          placeholder="输入问题，如：员工每年有几天年假？（支持多轮追问）"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && send()}
+          onKeyDown={(e) => e.key === "Enter" && !loading && send()}
         />
         <Button className="w-full sm:w-auto" onClick={() => send()} disabled={loading}>
           {loading ? "发送中…" : "发送"}
         </Button>
       </div>
 
-      {result && (
-        <div className="space-y-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">回答</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {thinking ? (
-                <div className="space-y-2">
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-2/3" />
-                </div>
-              ) : (
-                <p className="whitespace-pre-wrap break-words text-sm leading-6">
-                  {result.answer}
-                </p>
-              )}
-              {result.refused && (
-                <p className="mt-2 text-xs text-warning">（已拒答：知识库无相关依据）</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {result.references.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">参考来源（{result.references.length}）</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ul className="space-y-3 text-sm">
-                  {result.references.map((r: ReferenceItem, i) => (
-                    <li key={r.chunk_id || i} className="break-words text-primary">
-                      <Link
-                        className="hover:underline"
-                        href={`/admin/documents/${r.document_id}?chunk=${r.chunk_id}`}
-                      >
-                        [{i + 1}] {r.filename}
-                        {r.heading_path ? `｜${r.heading_path}` : ""}
-                        {r.page_number ? `｜第 ${r.page_number} 页` : ""}
-                        {r.paragraph_index !== null && r.paragraph_index !== undefined
-                          ? `｜第 ${r.paragraph_index} 段`
-                          : ""}
-                      </Link>
-                      <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
-                        {r.quote}
-                      </p>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
-          )}
-
-          {result.tool_calls.length > 0 && (
-            <Card>
-              <CardContent className="flex flex-wrap gap-2 pt-6 text-sm">
-                <span className="text-muted-foreground">调用工具：</span>
-                {result.tool_calls.map((t, i) => (
-                  <span
-                    key={i}
-                    className="break-words rounded bg-secondary px-2 py-0.5 text-secondary-foreground"
-                  >
-                    {t.name}
-                  </span>
-                ))}
-              </CardContent>
-            </Card>
-          )}
+      {messages.length === 0 ? (
+        <EmptyState
+          icon={MessageSquare}
+          title="开始对话"
+          description="输入问题或点击上方示例，支持多轮上下文与流式输出"
+        />
+      ) : (
+        <div className="space-y-4">
+          {messages.map((m, i) => (
+            <ChatBubble key={i} message={m} />
+          ))}
         </div>
       )}
     </div>
