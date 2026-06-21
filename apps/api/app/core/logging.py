@@ -1,7 +1,11 @@
-"""日志配置：loguru 落盘到 ``logs/``，结构化字段含 ``trace_id``。
+"""日志配置：loguru 落盘到 ``logs/``，结构化字段按需展示。
 
 配置：控制台 + ``app.log`` / ``error.log``，并按 ``module`` 分流到
 ``llm.log`` / ``im.log`` / ``indexing.log`` / ``tool.log``。
+
+结构化字段通过 ``logger.bind(key=value)`` 注入：``trace_id`` 恒显示；
+``module`` / ``event`` / ``tool_name`` / ``model`` 仅在绑定非默认值时追加，
+既根治「绑了却不落盘」（如 tool.log 曾丢失工具名），又不产生 ``=-`` 噪音。
 """
 
 import logging
@@ -15,14 +19,33 @@ from loguru import logger
 
 from app.core.config import settings
 
-# 默认 extra，确保 format 中 {extra[trace_id]} 始终可解析
-logger.configure(extra={"trace_id": "-"})
-
-_LOG_FORMAT = (
-    "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
-    "trace_id={extra[trace_id]} | "
-    "{name}:{function}:{line} | {message}"
+# 默认 extra：format 引用的 {extra[...]} 始终可解析；其余结构化字段也需默认值兜底，
+# 否则 callable format 里 record["extra"].get 找不到键（loguru 不会自动补默认）。
+_STRUCTURED_KEYS: tuple[str, ...] = ("module", "event", "tool_name", "model")
+logger.configure(
+    extra={"trace_id": "-", **{key: "-" for key in _STRUCTURED_KEYS}}
 )
+
+
+def _structured_fields(record: Any) -> str:
+    """拼接日志结构化字段段：``trace_id`` 恒显示，其余仅在 bind 非默认值时追加。"""
+
+    parts = [f"trace_id={record['extra'].get('trace_id', '-')}"]
+    for key in _STRUCTURED_KEYS:
+        val = record["extra"].get(key, "-")
+        if val != "-":
+            parts.append(f"{key}={val}")
+    return " | ".join(parts)
+
+
+def _formatter(record: Any) -> str:
+    """callable format：先算结构化字段段（固定文本），再交 loguru 渲染时间/等级/位置/消息。"""
+
+    return (
+        "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | "
+        f"{_structured_fields(record)} | "
+        "{name}:{function}:{line} | {message}"
+    )
 
 
 class _InterceptHandler(logging.Handler):
@@ -61,7 +84,7 @@ def setup_logging() -> None:
     # 控制台
     logger.add(
         sys.stdout,
-        format=_LOG_FORMAT,
+        format=_formatter,
         level=console_level,
         backtrace=True,
         diagnose=settings.is_dev,
@@ -71,7 +94,7 @@ def setup_logging() -> None:
     # app.log：INFO 及以上
     logger.add(
         log_dir / "app.log",
-        format=_LOG_FORMAT,
+        format=_formatter,
         level="INFO",
         rotation="10 MB",
         retention="14 days",
@@ -82,7 +105,7 @@ def setup_logging() -> None:
     # error.log：ERROR 及以上
     logger.add(
         log_dir / "error.log",
-        format=_LOG_FORMAT,
+        format=_formatter,
         level="ERROR",
         rotation="10 MB",
         retention="14 days",
@@ -98,7 +121,7 @@ def setup_logging() -> None:
     ):
         logger.add(
             log_dir / filename,
-            format=_LOG_FORMAT,
+            format=_formatter,
             level="INFO",
             rotation="10 MB",
             retention="14 days",
