@@ -97,8 +97,14 @@ async def soft_delete_document(document_id: uuid.UUID, session: AsyncSession) ->
     doc = await session.get(Document, document_id)
     if doc is None or doc.deleted_at is not None:
         return False
+    deleted_at = datetime.now(UTC)
     doc.status = "deleted"
-    doc.deleted_at = datetime.now(UTC)
+    doc.deleted_at = deleted_at
+    await session.execute(
+        update(DocumentChunk)
+        .where(DocumentChunk.document_id == doc.id, DocumentChunk.deleted_at.is_(None))
+        .values(deleted_at=deleted_at)
+    )
     await session.commit()
     logger.info("文档已软删除 doc={}", document_id)
     return True

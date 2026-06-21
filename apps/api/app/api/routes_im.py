@@ -8,9 +8,10 @@ import asyncio
 import json
 import secrets
 import time
+from io import BytesIO
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, UploadFile
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +20,7 @@ from app.core.errors import AppException, ErrorCode
 from app.core.redis_client import acquire_idempotent
 from app.db.session import AsyncSessionLocal, get_db
 from app.im import feishu_stream
-from app.im.base import IMMessage
+from app.im.base import IMAttachment, IMMessage
 from app.im.dingtalk import (
     decrypt_event,
     encrypt_event,
@@ -30,6 +31,7 @@ from app.im.dingtalk import (
 )
 from app.im.feishu import (
     decrypt_payload,
+    download_message_file,
     is_message_receive_event,
     is_url_verification,
     parse_event,
@@ -38,7 +40,9 @@ from app.im.feishu import (
     verify_token,
 )
 from app.im.formatter import format_feishu_post, format_reply
-from app.services import chat_service
+from app.parsers import SUPPORTED_EXTENSIONS
+from app.services import chat_service, document_service
+from app.services.indexing_service import index_document
 
 # chat 处理异常时的统一兜底文案（不暴露技术细节，IM 端必有回复）
 _CHAT_FALLBACK = {
@@ -196,7 +200,7 @@ async def feishu_callback(request: Request) -> dict:
         return {"success": False, "message": "忽略非消息事件"}
 
     im_msg = parse_event(event_payload)
-    if not im_msg.text:
+    if not im_msg.text and not im_msg.attachments:
         return {"success": False, "message": "空消息"}
     logger.bind(module="im", event="message_received", platform="feishu").info(
         "飞书消息 user={} conv={} text={}", im_msg.user_id, im_msg.conversation_id, im_msg.text[:50]
@@ -230,6 +234,11 @@ async def _handle_feishu_message(im_msg: IMMessage) -> None:
         conversation_id=im_msg.conversation_id,
         user_id=im_msg.user_id,
     )
+    if im_msg.attachments:
+        handled = await _handle_feishu_file_message(im_msg, bind)
+        if handled:
+            return
+
     card_id: str | None = None
     if settings.FEISHU_STREAMING_ENABLED:
         card_id = await feishu_stream.create_streaming_card(im_msg.conversation_id)
@@ -254,7 +263,10 @@ async def _handle_feishu_message(im_msg: IMMessage) -> None:
         result = _CHAT_FALLBACK
 
     post_content = format_feishu_post(
-        result.get("answer", ""), result.get("references", []), result.get("tool_calls", [])
+        result.get("answer", ""),
+        result.get("references", []),
+        result.get("tool_calls", []),
+        mentions=im_msg.mentions,
     )
     await reply_message(im_msg.conversation_id, post_content, msg_type="post")
     bind.info("飞书后台回复完成（一次性）")
@@ -300,7 +312,57 @@ async def _feishu_stream_reply(im_msg: IMMessage, card_id: str, bind: Any) -> No
             f"{i + 1}. {r.get('filename', '')}" for i, r in enumerate(references)
         )
         final_text = f"{accumulated}\n\n---\n参考来源：\n{ref_lines}".strip()
+    if im_msg.mentions:
+        names = " ".join(f"@{m.name or m.open_id}" for m in im_msg.mentions)
+        final_text = f"{final_text}\n\n{names}".strip()
     if final_text and await feishu_stream.update_card_text(card_id, final_text, sequence):
         sequence += 1
     await feishu_stream.close_streaming(card_id, sequence)  # best-effort 关闭
     bind.info("飞书流式回复完成")
+
+
+async def download_feishu_file(message_id: str, attachment: IMAttachment) -> bytes:
+    """下载飞书附件内容；单独包装便于测试替换。"""
+    return await download_message_file(message_id, attachment.file_key)
+
+
+async def _handle_feishu_file_message(im_msg: IMMessage, bind: Any) -> bool:
+    """处理飞书文件消息：下载 → 上传知识库 → 同步索引 → 回复结果。"""
+    if not im_msg.attachments:
+        return False
+    attachment = im_msg.attachments[0]
+    ext = f".{attachment.file_type.lower().lstrip('.')}"
+    if ext not in SUPPORTED_EXTENSIONS:
+        post = format_feishu_post(
+            f"这个文件暂时不能加入知识库。仅支持：{', '.join(sorted(SUPPORTED_EXTENSIONS))}。",
+            [],
+            [],
+            mentions=im_msg.mentions,
+        )
+        await reply_message(im_msg.conversation_id, post, msg_type="post")
+        return True
+    if attachment.file_size > settings.UPLOAD_MAX_SIZE_BYTES:
+        post = format_feishu_post(
+            "文件超过大小限制，暂时不能加入知识库。", [], [], mentions=im_msg.mentions
+        )
+        await reply_message(im_msg.conversation_id, post, msg_type="post")
+        return True
+    try:
+        content = await download_feishu_file(im_msg.message_id, attachment)
+        upload = UploadFile(file=BytesIO(content), filename=attachment.filename)
+        async with AsyncSessionLocal() as session:
+            doc = await document_service.upload_document(upload, session)
+            await index_document(doc.id)
+            await session.refresh(doc)
+        answer = f"文件「{attachment.filename}」已加入知识库，可以继续围绕它提问。"
+        post = format_feishu_post(answer, [], [], mentions=im_msg.mentions)
+        await reply_message(im_msg.conversation_id, post, msg_type="post")
+        bind.info("飞书文件已加入知识库 filename={}", attachment.filename)
+        return True
+    except Exception as exc:
+        bind.exception("飞书文件处理失败: {}", exc)
+        post = format_feishu_post(
+            "文件处理失败，请稍后再试或联系管理员。", [], [], mentions=im_msg.mentions
+        )
+        await reply_message(im_msg.conversation_id, post, msg_type="post")
+        return True

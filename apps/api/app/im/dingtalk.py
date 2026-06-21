@@ -25,6 +25,11 @@ def verify_sign(timestamp: str, sign: str) -> bool:
     """
     secret = settings.DINGTALK_APP_SECRET
     if not settings.is_secret_configured(secret):
+        if not settings.is_dev:
+            logger.bind(module="im", event="dingtalk_signature").warning(
+                "生产环境 DINGTALK_APP_SECRET 未配置，拒绝验签"
+            )
+            return False
         logger.bind(module="im", event="dingtalk_signature").warning(
             "DINGTALK_APP_SECRET 未配置，跳过验签（仅开发环境允许）"
         )
@@ -46,6 +51,11 @@ def verify_event_signature(
     """
     token = settings.DINGTALK_CALLBACK_TOKEN
     if not settings.is_secret_configured(token):
+        if not settings.is_dev:
+            logger.bind(module="im", event="dingtalk_event_sign").warning(
+                "生产环境 DINGTALK_CALLBACK_TOKEN 未配置，拒绝事件验签"
+            )
+            return False
         logger.bind(module="im", event="dingtalk_event_sign").warning(
             "DINGTALK_CALLBACK_TOKEN 未配置，跳过事件验签（仅开发环境允许）"
         )

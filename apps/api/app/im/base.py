@@ -2,7 +2,25 @@
 
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+
+class IMMention(BaseModel):
+    """IM 消息里的 @ 成员信息，用于富消息展示。"""
+
+    open_id: str = ""
+    user_id: str = ""
+    name: str = ""
+    key: str = ""
+
+
+class IMAttachment(BaseModel):
+    """IM 附件元数据；实际文件内容由平台适配层按需下载。"""
+
+    file_key: str
+    filename: str
+    file_size: int = 0
+    file_type: str = ""
 
 
 class IMMessage(BaseModel):
@@ -16,6 +34,8 @@ class IMMessage(BaseModel):
     user_name: str | None = None
     text: str
     raw: dict[str, Any]
+    mentions: list[IMMention] = Field(default_factory=list)
+    attachments: list[IMAttachment] = Field(default_factory=list)
 
 
 class IMReply(BaseModel):
@@ -23,8 +43,8 @@ class IMReply(BaseModel):
 
     text: str
     markdown: str | None = None
-    references: list[dict[str, Any]] = []
-    tool_calls: list[dict[str, Any]] = []
+    references: list[dict[str, Any]] = Field(default_factory=list)
+    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class IMVerifyError(Exception):

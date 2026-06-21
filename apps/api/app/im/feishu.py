@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from loguru import logger
 
 from app.core.config import settings
-from app.im.base import IMMessage
+from app.im.base import IMAttachment, IMMention, IMMessage
 
 # tenant_access_token 本地缓存（模块级，asyncio 单进程内共享；多 worker 各自缓存）
 _token_cache: dict[str, Any] = {"token": "", "expire_at": 0.0}
@@ -70,6 +70,11 @@ def verify_token(token: str) -> bool:
     """
     expected = settings.FEISHU_VERIFICATION_TOKEN
     if not settings.is_secret_configured(expected):
+        if not settings.is_dev:
+            logger.bind(module="im", event="feishu_token").warning(
+                "生产环境 FEISHU_VERIFICATION_TOKEN 未配置，拒绝 token 校验"
+            )
+            return False
         logger.bind(module="im", event="feishu_token").warning(
             "FEISHU_VERIFICATION_TOKEN 未配置，跳过 token 校验（仅开发环境允许）"
         )
@@ -85,6 +90,11 @@ def verify_signature(timestamp: str, nonce: str, raw_body: str, signature: str) 
     """
     encrypt_key = settings.FEISHU_ENCRYPT_KEY
     if not settings.is_secret_configured(encrypt_key):
+        if not settings.is_dev:
+            logger.bind(module="im", event="feishu_signature").warning(
+                "生产环境 FEISHU_ENCRYPT_KEY 未配置，拒绝验签"
+            )
+            return False
         logger.bind(module="im", event="feishu_signature").warning(
             "FEISHU_ENCRYPT_KEY 未配置，跳过验签（仅开发环境允许）"
         )
@@ -127,13 +137,20 @@ def parse_event(event_payload: dict) -> IMMessage:
         "private" if chat_type == "p2p" else "group"
     )
 
+    message_type = msg.get("message_type")
+    raw_mentions = msg.get("mentions") or []
     content_text = ""
-    if msg.get("message_type") == "text":
+    mentions: list[IMMention] = []
+    attachments: list[IMAttachment] = []
+    if message_type == "text":
         try:
             content_text = json.loads(msg.get("content") or "{}").get("text", "")
         except json.JSONDecodeError:
             content_text = ""
-        content_text = _strip_at_mention(content_text, msg.get("mentions") or []).strip()
+        content_text = " ".join(_strip_at_mention(content_text, raw_mentions).split())
+        mentions = _extract_mentions(raw_mentions)
+    elif message_type == "file":
+        attachments = _extract_file_attachments(msg)
 
     return IMMessage(
         platform="feishu",
@@ -144,6 +161,8 @@ def parse_event(event_payload: dict) -> IMMessage:
         user_name=None,  # 飞书 v1 事件 sender 仅含 id，无名称
         text=content_text,
         raw=event_payload,
+        mentions=mentions,
+        attachments=attachments,
     )
 
 
@@ -155,6 +174,47 @@ def _strip_at_mention(text: str, mentions: list[dict]) -> str:
         if key:
             cleaned = cleaned.replace(key, "")
     return cleaned
+
+
+def _extract_mentions(mentions: list[dict]) -> list[IMMention]:
+    """保留非机器人 @ 成员，用于飞书 post 的 at 富文本展示。"""
+    items: list[IMMention] = []
+    for mention in mentions:
+        name = str(mention.get("name") or "")
+        mention_id = mention.get("id") or {}
+        open_id = str(mention_id.get("open_id") or "")
+        if name == "小苏":
+            continue
+        items.append(
+            IMMention(
+                open_id=open_id,
+                user_id=str(mention_id.get("user_id") or ""),
+                name=name,
+                key=str(mention.get("key") or ""),
+            )
+        )
+    return items
+
+
+def _extract_file_attachments(msg: dict) -> list[IMAttachment]:
+    """从飞书 file 消息中提取附件元数据。"""
+    try:
+        content = json.loads(msg.get("content") or "{}")
+    except json.JSONDecodeError:
+        return []
+    filename = str(content.get("file_name") or content.get("name") or "upload")
+    file_type = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    file_key = str(content.get("file_key") or "")
+    if not file_key:
+        return []
+    return [
+        IMAttachment(
+            file_key=file_key,
+            filename=filename,
+            file_size=int(content.get("file_size") or content.get("size") or 0),
+            file_type=file_type,
+        )
+    ]
 
 
 def is_message_receive_event(event_payload: dict) -> bool:
@@ -190,6 +250,18 @@ async def get_tenant_access_token() -> str:
     expire = int(data.get("expire", 7200))
     _token_cache.update(token=token, expire_at=time.time() + expire)
     return token
+
+
+async def download_message_file(message_id: str, file_key: str) -> bytes:
+    """下载飞书消息文件内容，供知识库文件上传问答使用。"""
+    token = await get_tenant_access_token()
+    url = f"{settings.FEISHU_BASE_URL}/im/v1/messages/{message_id}/resources/{file_key}"
+    headers = {"Authorization": f"Bearer {token}"}
+    params = {"type": "file"}
+    async with httpx.AsyncClient(timeout=float(settings.IM_DEFAULT_TIMEOUT_SECONDS)) as client:
+        resp = await client.get(url, params=params, headers=headers)
+        resp.raise_for_status()
+        return resp.content
 
 
 async def reply_message(receive_id: str, content: dict, msg_type: str = "text") -> bool:

@@ -1,6 +1,7 @@
 """IM 回复格式化：引用 Markdown / 飞书 post 富文本，按 IM 能力选择展示形式。"""
 
 from app.core.config import settings
+from app.im.base import IMMention
 
 
 def _reference_location(r: dict) -> str:
@@ -52,13 +53,26 @@ def format_feishu_post(
     answer: str,
     references: list[dict] | None = None,
     tool_calls: list[dict] | None = None,
+    mentions: list[IMMention] | None = None,
 ) -> dict:
     """生成飞书 post 富文本结构（``{"zh_cn": {"content": [[...]]}}``）。
 
     由 ``im/feishu.reply_message`` 以 ``msg_type=post`` 发送，复用 ``_reference_location``。
     不带 title，避免每条消息正文开头都出现"小苏"前缀。
     """
-    content: list[list[dict]] = [[{"tag": "text", "text": answer}]]
+    first_row: list[dict] = [{"tag": "text", "text": answer}]
+    if mentions:
+        first_row.append({"tag": "text", "text": "\n"})
+        for mention in mentions:
+            first_row.append(
+                {
+                    "tag": "at",
+                    "user_id": mention.open_id or mention.user_id,
+                    "user_name": mention.name or "成员",
+                }
+            )
+            first_row.append({"tag": "text", "text": " "})
+    content: list[list[dict]] = [first_row]
 
     if references:
         content.append([{"tag": "text", "text": "参考来源："}])
