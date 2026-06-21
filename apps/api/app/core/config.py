@@ -95,6 +95,9 @@ class Settings(BaseSettings):
     DINGTALK_CALLBACK_TOKEN: str = _PLACEHOLDER
     # 事件订阅加密回调 AES 密钥（43 字符 base64）；启用加密推送时必填
     DINGTALK_AES_KEY: str = _PLACEHOLDER
+    # 钉钉无流式更新能力，开启后先发占位消息再发最终答案，消除用户黑盒等待
+    DINGTALK_PLACEHOLDER_ENABLED: bool = True
+    DINGTALK_PLACEHOLDER_TEXT: str = "🤔 小苏正在思考，请稍候..."
 
     # ---------- 飞书机器人 ----------
     FEISHU_APP_ID: str = _PLACEHOLDER
@@ -105,6 +108,10 @@ class Settings(BaseSettings):
     # 飞书流式卡片（CardKit 打字机效果）；需应用开通 cardkit:card:write 权限。
     # 开启后 IM 回复先发流式卡片再逐批更新；创建失败自动降级为一次性 post 回复。
     FEISHU_STREAMING_ENABLED: bool = True
+    # 流式卡片攒批间隔（毫秒）；对齐 CardKit 渲染端最小刷新间隔并留余量，原 400ms 体感像一次性
+    FEISHU_FLUSH_INTERVAL_MS: int = 80
+    # 工具调用阶段向卡片推送「正在检索知识库...」等进度文案，消除空卡片黑盒等待
+    FEISHU_TOOL_STATUS_ENABLED: bool = True
 
     # ---------- IM / 会话 ----------
     IM_DEFAULT_TIMEOUT_SECONDS: int = 45

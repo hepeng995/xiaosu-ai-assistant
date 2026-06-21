@@ -20,6 +20,21 @@ from app.tools.knowledge_tool import KnowledgeSearchTool
 from app.tools.orders_tool import OrdersTool
 from app.tools.time_tool import CurrentTimeTool
 
+# 工具执行阶段的用户可读进度文案（工具元数据，非路由 if-else）。
+# 流式回复时在 LLM 决定调用某工具后立即推送给 IM 卡片，消除空卡片黑盒等待。
+TOOL_STATUS_LABELS: dict[str, str] = {
+    "search_knowledge_base": "正在检索知识库...",
+    "get_orders": "正在查询订单数据...",
+    "get_attendance": "正在查询考勤记录...",
+    "get_employee": "正在查询员工信息...",
+    "get_current_time": "正在获取当前时间...",
+}
+
+
+def status_label_for(tool_name: str) -> str:
+    """返回工具对应的进度文案；未知工具回退通用文案。"""
+    return TOOL_STATUS_LABELS.get(tool_name, "正在思考...")
+
 
 def default_tools(session: AsyncSession | None = None) -> list[BaseTool]:
     """返回默认工具集合（知识库工具需 session）。"""
