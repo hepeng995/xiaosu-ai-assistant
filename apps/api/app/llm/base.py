@@ -24,9 +24,12 @@ class LLMProvider(Protocol):
     def use_mock(self) -> bool: ...
 
     async def chat_with_tools(
-        self, messages: list[dict], tools_schema: list[dict]
+        self, messages: list[dict], tools_schema: list[dict], temperature: float = 0.0
     ) -> tuple[str, list[dict], dict]:
-        """带工具的对话，返回 (content, tool_calls, usage)；tool_calls 为 OpenAI 格式。"""
+        """带工具的对话，返回 (content, tool_calls, usage)；tool_calls 为 OpenAI 格式。
+
+        工具选择阶段默认 temperature=0.0 保证确定性（相同问题选相同工具）。
+        """
         ...
 
     def chat_stream(

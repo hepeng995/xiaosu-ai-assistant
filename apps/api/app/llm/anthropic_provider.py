@@ -44,14 +44,14 @@ class AnthropicProvider:
     # ---------- 工具对话 ----------
 
     async def chat_with_tools(
-        self, messages: list[dict], tools_schema: list[dict]
+        self, messages: list[dict], tools_schema: list[dict], temperature: float = 0.0
     ) -> tuple[str, list[dict], dict]:
         if self.use_mock:
             return self._mock_helper._mock_chat_with_tools(messages)
-        return await self._chat_with_tools_api(messages, tools_schema)
+        return await self._chat_with_tools_api(messages, tools_schema, temperature)
 
     async def _chat_with_tools_api(
-        self, messages: list[dict], tools_schema: list[dict]
+        self, messages: list[dict], tools_schema: list[dict], temperature: float = 0.0
     ) -> tuple[str, list[dict], dict]:
         effective_model = await self._effective_model()
         system, anthropic_msgs = self._convert_messages(messages)
@@ -61,6 +61,7 @@ class AnthropicProvider:
             "max_tokens": 2048,
             "system": system,
             "messages": anthropic_msgs,
+            "temperature": temperature,
         }
         if tools_schema:
             payload["tools"] = self._convert_tools(tools_schema)

@@ -47,12 +47,16 @@ class LLMService:
         return await self._chat_via_api(messages, temperature)
 
     async def chat_with_tools(
-        self, messages: list[dict], tools_schema: list[dict]
+        self, messages: list[dict], tools_schema: list[dict], temperature: float = 0.0
     ) -> tuple[str, list[dict], dict]:
-        """带工具的对话，返回 (content, tool_calls, usage)。"""
+        """带工具的对话，返回 (content, tool_calls, usage)。
+
+        工具选择阶段默认 temperature=0.0 保证确定性（相同问题选相同工具），
+        避免同一问题多次回答不一致；最终回答阶段（chat_stream）仍用 0.3 保留丰富度。
+        """
         if self.use_mock:
             return self._mock_chat_with_tools(messages)
-        return await self._chat_with_tools_api(messages, tools_schema)
+        return await self._chat_with_tools_api(messages, tools_schema, temperature)
 
     async def chat_stream(
         self, messages: list[dict], temperature: float = 0.3
@@ -114,7 +118,7 @@ class LLMService:
             return resp
 
     async def _chat_with_tools_api(
-        self, messages: list[dict], tools_schema: list[dict]
+        self, messages: list[dict], tools_schema: list[dict], temperature: float = 0.0
     ) -> tuple[str, list[dict], dict]:
         effective_model = await self._effective_model()
         url = f"{self._base_url.rstrip('/')}/chat/completions"
@@ -122,6 +126,7 @@ class LLMService:
             "model": effective_model,
             "messages": messages,
             "tools": tools_schema,
+            "temperature": temperature,
         }
         with llm_span("llm_chat_with_tools", model=effective_model) as state:
             resp_data = await self._post(url, payload)
