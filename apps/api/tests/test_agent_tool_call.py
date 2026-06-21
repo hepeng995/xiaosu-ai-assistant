@@ -165,3 +165,58 @@ def test_mcp_server_imports_when_sdk_available() -> None:
     from app.mcp.server import mcp_server
 
     assert mcp_server is not None
+
+
+@pytest.mark.asyncio
+async def test_prepare_response_stream_yields_status_and_prepared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """prepare_response_stream 应 yield 工具进度事件，末尾 yield 字段完整的 prepared。"""
+    from app.agents import agent
+
+    call_count = [0]
+
+    async def fake_chat_with_tools(
+        _conv: list[dict], _schemas: list[dict]
+    ) -> tuple[str, list[dict], dict]:
+        call_count[0] += 1
+        if call_count[0] == 1:
+            return "", [
+                {
+                    "id": "c1",
+                    "function": {
+                        "name": "get_employee",
+                        "arguments": '{"employee_id":"001"}',
+                    },
+                }
+            ], {"prompt_tokens": 1, "completion_tokens": 0, "total_tokens": 1}
+        return "张三在销售部", [], {"prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3}
+
+    async def fake_execute_tool(
+        _tool: object, _args: dict[str, Any], _message_id: object = None
+    ) -> ToolResult:
+        return ToolResult(success=True, data={"name": "张三", "department": "销售部"})
+
+    monkeypatch.setattr(agent.llm_service, "chat_with_tools", fake_chat_with_tools)
+    monkeypatch.setattr(agent, "execute_tool", fake_execute_tool)
+
+    events = [
+        e async for e in agent.prepare_response_stream([], "张三在哪个部门", session=None)
+    ]
+
+    statuses = [e for e in events if e["type"] == "status"]
+    prepared_events = [e for e in events if e["type"] == "prepared"]
+
+    # 两轮 thinking + 一次 tool_call（label 来自 tool_registry 元数据，非硬编码路由）
+    assert [s["stage"] for s in statuses] == ["thinking", "tool_call", "thinking"]
+    assert statuses[1]["tool_name"] == "get_employee"
+    assert statuses[1]["label"] == "正在查询员工信息..."
+
+    # 末尾 prepared 字段完整，与同步版 prepare_response 一致
+    assert len(prepared_events) == 1
+    prepared = prepared_events[0]["data"]
+    assert prepared.draft_answer == "张三在销售部"
+    assert len(prepared.tool_calls) == 1
+    assert prepared.tool_calls[0]["name"] == "get_employee"
+    assert prepared.usage["total_tokens"] == 4
+    assert prepared.needs_final_generation is True

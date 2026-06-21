@@ -599,3 +599,126 @@ async def test_handle_feishu_file_upload_rejects_unsupported_attachment(
     assert await routes_im._handle_feishu_file_message(im_msg, logger.bind()) is True
     texts = [seg["text"] for row in replies[0]["zh_cn"]["content"] for seg in row]
     assert any("仅支持" in text for text in texts)
+
+
+@pytest.mark.asyncio
+async def test_feishu_stream_reply_renders_status_as_quote(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_feishu_stream_reply 应把 status 文案渲染为 markdown 引用块，终态清空进度只留答案。"""
+    import time as _time
+
+    from loguru import logger
+
+    from app.api import routes_im
+    from app.im.base import IMMessage
+
+    updates: list[str] = []
+
+    async def fake_stream_chat(*_args: object, **_kwargs: object):
+        yield {
+            "event": "status",
+            "data": {
+                "stage": "tool_call",
+                "tool_name": "search_knowledge_base",
+                "label": "正在检索知识库...",
+            },
+        }
+        yield {"event": "token", "data": {"content": "答案"}}
+        yield {"event": "references", "data": {"references": []}}
+
+    async def fake_update(_card_id: str, content: str, _sequence: int) -> bool:
+        updates.append(content)
+        return True
+
+    async def fake_close(_card_id: str, _sequence: int) -> bool:
+        return True
+
+    class FakeSession:
+        async def __aenter__(self) -> "FakeSession":
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+    counter = [0]
+    orig_monotonic = _time.monotonic
+
+    def fake_monotonic() -> float:
+        counter[0] += 1
+        return orig_monotonic() + counter[0]
+
+    monkeypatch.setattr(routes_im.chat_service, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(routes_im.feishu_stream, "update_card_text", fake_update)
+    monkeypatch.setattr(routes_im.feishu_stream, "close_streaming", fake_close)
+    monkeypatch.setattr(routes_im, "AsyncSessionLocal", lambda: FakeSession())
+    monkeypatch.setattr(routes_im.time, "monotonic", fake_monotonic)
+
+    im_msg = IMMessage(
+        platform="feishu",
+        message_id="m1",
+        conversation_id="c1",
+        conversation_type="private",
+        user_id="u1",
+        user_name=None,
+        text="查",
+        raw={},
+    )
+    await routes_im._feishu_stream_reply(im_msg, "CARD_1", logger.bind())
+
+    # 过程态：进度文案以 markdown 引用块（>）出现
+    assert any("> 正在检索知识库..." in u for u in updates)
+    # 终态：清空进度文案，只保留答案
+    assert updates[-1] == "答案"
+
+
+@pytest.mark.asyncio
+async def test_dingtalk_handle_message_placeholder_then_answer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_handle_dingtalk_message 应先发占位消息（纯文本），再发最终答案（双消息方案）。"""
+    from loguru import logger
+
+    from app.api import routes_im
+    from app.core.config import settings
+    from app.im.base import IMMessage
+
+    replies: list[tuple[str, str | None]] = []
+    chat_called = [False]
+
+    async def fake_chat(*_args: object, **_kwargs: object) -> dict:
+        chat_called[0] = True
+        return {"answer": "最终答案", "references": [], "tool_calls": [], "refused": False}
+
+    async def fake_reply(_webhook: str, text: str, markdown: str | None = None) -> bool:
+        replies.append((text, markdown))
+        return True
+
+    class FakeSession:
+        async def __aenter__(self) -> "FakeSession":
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+    monkeypatch.setattr(routes_im.chat_service, "chat", fake_chat)
+    monkeypatch.setattr(routes_im, "reply_via_webhook", fake_reply)
+    monkeypatch.setattr(routes_im, "AsyncSessionLocal", lambda: FakeSession())
+
+    im_msg = IMMessage(
+        platform="dingtalk",
+        message_id="m1",
+        conversation_id="c1",
+        conversation_type="private",
+        user_id="u1",
+        user_name=None,
+        text="你好",
+        raw={},
+    )
+    await routes_im._handle_dingtalk_message(im_msg, "https://wh.example", logger.bind())
+
+    # 占位先发（纯文本 markdown=None），最终答案后发
+    assert len(replies) == 2
+    assert replies[0] == (settings.DINGTALK_PLACEHOLDER_TEXT, None)
+    assert replies[1][0] == "最终答案"
+    assert chat_called[0] is True

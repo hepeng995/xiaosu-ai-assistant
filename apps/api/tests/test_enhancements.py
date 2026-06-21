@@ -247,16 +247,19 @@ async def test_stream_chat_streams_tokens_and_updates_message(
         updates.update(fields)
         return assistant_msg
 
-    async def fake_prepare_response(*_args: object, **_kwargs: object) -> Any:
-        return SimpleNamespace(
-            conversation=[{"role": "user", "content": "hi"}],
-            draft_answer="",
-            references=[{"filename": "员工手册.md", "document_id": "d1", "chunk_id": "c1"}],
-            tool_calls=[{"name": "get_employee", "arguments": {"employee_id": "001"}}],
-            usage={"prompt_tokens": 2, "completion_tokens": 0, "total_tokens": 2},
-            refused=False,
-            needs_final_generation=True,
-        )
+    async def fake_prepare_response_stream(*_args: object, **_kwargs: object) -> Any:
+        yield {
+            "type": "prepared",
+            "data": SimpleNamespace(
+                conversation=[{"role": "user", "content": "hi"}],
+                draft_answer="",
+                references=[{"filename": "员工手册.md", "document_id": "d1", "chunk_id": "c1"}],
+                tool_calls=[{"name": "get_employee", "arguments": {"employee_id": "001"}}],
+                usage={"prompt_tokens": 2, "completion_tokens": 0, "total_tokens": 2},
+                refused=False,
+                needs_final_generation=True,
+            ),
+        }
 
     class FakeLLM:
         use_mock = False
@@ -269,7 +272,7 @@ async def test_stream_chat_streams_tokens_and_updates_message(
     monkeypatch.setattr(chat_service, "get_recent_messages", fake_get_recent_messages)
     monkeypatch.setattr(chat_service, "save_message", fake_save_message)
     monkeypatch.setattr(chat_service, "update_message", fake_update_message)
-    monkeypatch.setattr(chat_service, "prepare_response", fake_prepare_response)
+    monkeypatch.setattr(chat_service, "prepare_response_stream", fake_prepare_response_stream)
     monkeypatch.setattr(chat_service, "llm_service", FakeLLM())
 
     events = [
