@@ -189,7 +189,11 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="系统设置" description="查看运行配置与密钥状态" />
+      <PageHeader
+        eyebrow="Settings · 04"
+        title="系统设置"
+        description="查看运行配置与密钥状态"
+      />
 
       <p className="text-sm text-muted-foreground">
         数据库连接：

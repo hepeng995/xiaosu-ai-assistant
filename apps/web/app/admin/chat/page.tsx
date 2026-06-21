@@ -53,7 +53,11 @@ export default function ChatPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="调试聊天" description="在 Web 端测试 RAG 检索与工具调用" />
+      <PageHeader
+        eyebrow="Playground · 05"
+        title="调试聊天"
+        description="在 Web 端测试 RAG 检索与工具调用"
+      />
       <div className="flex gap-2">
         <Input
           placeholder="输入问题，如：员工每年有几天年假？"

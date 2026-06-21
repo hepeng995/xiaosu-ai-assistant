@@ -142,7 +142,11 @@ export default function DocumentsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="文档管理" description="上传与维护 RAG 知识库文档">
+      <PageHeader
+        eyebrow="Knowledge · 02"
+        title="文档管理"
+        description="上传与维护 RAG 知识库文档"
+      >
         <label
           className={cn(buttonVariants({ variant: "default" }), "cursor-pointer")}
         >

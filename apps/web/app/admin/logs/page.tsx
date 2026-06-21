@@ -84,7 +84,11 @@ export default function LogsPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="对话日志" description="查看历史对话、工具调用与 Token 消耗">
+      <PageHeader
+        eyebrow="Logs · 03"
+        title="对话日志"
+        description="查看历史对话、工具调用与 Token 消耗"
+      >
         <Button variant="outline" size="sm" onClick={refresh} disabled={refreshing}>
           {refreshing ? "刷新中…" : "刷新"}
         </Button>

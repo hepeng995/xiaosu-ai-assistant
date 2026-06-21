@@ -6,17 +6,25 @@ interface EmptyStateProps {
   description?: string;
 }
 
-/** 统一的空状态：圆形图标 + 标题 + 可选说明，替代裸文案。 */
+/** 统一的空状态：虚线翡翠圈图标 + 衬线标题 + 可选说明。 */
 export function EmptyState({ icon: Icon, title, description }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 px-6 py-12 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <Icon className="h-6 w-6" />
+    <div className="flex flex-col items-center justify-center gap-3 px-6 py-14 text-center">
+      <div className="relative flex h-14 w-14 items-center justify-center">
+        <div className="absolute inset-0 rounded-full border border-dashed border-primary/30" />
+        <div className="absolute inset-2 rounded-full bg-primary/5" />
+        <Icon className="relative h-6 w-6 text-primary/70" strokeWidth={1.5} />
       </div>
-      <p className="text-sm font-medium text-foreground">{title}</p>
-      {description && (
-        <p className="max-w-sm text-xs text-muted-foreground">{description}</p>
-      )}
+      <div className="space-y-1">
+        <p className="font-display text-base font-medium tracking-tight text-foreground">
+          {title}
+        </p>
+        {description && (
+          <p className="mx-auto max-w-sm text-xs text-muted-foreground">
+            {description}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

@@ -15,7 +15,7 @@ interface ConfirmDialogProps {
   onCancel: () => void;
 }
 
-/** 轻量受控确认弹窗，替代浏览器原生 confirm()，与 shadcn 风格统一。 */
+/** 轻量受控确认弹窗，替代浏览器原生 confirm()，与墨色工坊风格统一。 */
 export function ConfirmDialog({
   open,
   title,
@@ -40,7 +40,7 @@ export function ConfirmDialog({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/50 backdrop-blur-md animate-fade-in"
         onClick={onCancel}
         aria-hidden="true"
       />
@@ -48,15 +48,27 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-dialog-title"
-        className="relative w-full max-w-sm rounded-lg border border-border bg-card p-5 shadow-lg"
+        className="corner-frame animate-fade-in-up relative w-full max-w-sm overflow-hidden rounded-xl border border-border bg-card p-6 shadow-2xl"
       >
-        <h2 id="confirm-dialog-title" className="text-base font-semibold">
+        {/* 顶部色条：危险操作红色，普通翡翠 */}
+        <div
+          className={
+            "absolute inset-x-0 top-0 h-[3px] " +
+            (destructive ? "bg-destructive" : "bg-primary")
+          }
+        />
+        <h2
+          id="confirm-dialog-title"
+          className="font-display text-lg font-semibold tracking-tight"
+        >
           {title}
         </h2>
         {description && (
-          <p className="mt-1.5 text-sm text-muted-foreground">{description}</p>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            {description}
+          </p>
         )}
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-6 flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onCancel}>
             {cancelText}
           </Button>

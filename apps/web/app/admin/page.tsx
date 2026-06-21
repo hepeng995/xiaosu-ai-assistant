@@ -4,8 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  ArrowUpRight,
+  Bug,
   CircleDollarSign,
   Database,
+  FileText,
   Files,
   MessageSquare,
   Zap,
@@ -18,6 +21,27 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { errorMessage, shortTime } from "@/lib/format";
 import { summarize } from "@/lib/stats";
+
+const QUICK_LINKS = [
+  {
+    href: "/admin/documents",
+    label: "管理文档",
+    desc: "上传与维护知识库",
+    icon: FileText,
+  },
+  {
+    href: "/admin/logs",
+    label: "对话日志",
+    desc: "工具调用与 Token 消耗",
+    icon: MessageSquare,
+  },
+  {
+    href: "/admin/chat",
+    label: "调试聊天",
+    desc: "测试 RAG 检索效果",
+    icon: Bug,
+  },
+];
 
 export default function DashboardPage() {
   const [messages, setMessages] = useState<MessageItem[]>([]);
@@ -59,15 +83,24 @@ export default function DashboardPage() {
         : "destructive";
 
   return (
-    <div className="space-y-4">
-      <PageHeader title="概览" description="知识库与对话的整体运行情况" />
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Overview · 01"
+        title="概览"
+        description="知识库与对话的整体运行情况"
+      />
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
+      {/* 统计卡网格 */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
         {loading ? (
           Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-[88px]" />
+            <Skeleton key={i} className="h-[104px]" />
           ))
         ) : (
           <>
@@ -104,53 +137,77 @@ export default function DashboardPage() {
         )}
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">最近对话</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          {loading ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-10" />
-            ))
-          ) : recent.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              暂无对话记录
-            </p>
-          ) : (
-            recent.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center gap-3 border-b border-border/60 pb-2 text-sm last:border-0 last:pb-0"
-              >
-                <span className="w-24 shrink-0 text-xs text-muted-foreground">
-                  {shortTime(m.created_at)}
-                </span>
-                <Badge variant="outline" className="shrink-0">
-                  {m.platform}
-                </Badge>
-                <span className="min-w-0 flex-1 truncate">{m.content}</span>
-                {!m.success && (
-                  <Badge variant="destructive" className="shrink-0">
-                    失败
+      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+        {/* 最近对话 */}
+        <Card>
+          <CardHeader className="flex-row items-center justify-between space-y-0">
+            <CardTitle className="text-base">最近对话</CardTitle>
+            <Link
+              href="/admin/logs"
+              className="font-mono text-[11px] uppercase tracking-wider text-muted-foreground transition-colors hover:text-primary"
+            >
+              查看全部 →
+            </Link>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {loading ? (
+              Array.from({ length: 4 }).map((_, i) => (
+                <Skeleton key={i} className="h-10" />
+              ))
+            ) : recent.length === 0 ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                暂无对话记录
+              </p>
+            ) : (
+              recent.map((m) => (
+                <div
+                  key={m.id}
+                  className="group flex items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-sm transition-colors hover:border-border/60 hover:bg-primary/[0.03]"
+                >
+                  <span className="w-16 shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
+                    {shortTime(m.created_at)}
+                  </span>
+                  <Badge variant="outline" className="shrink-0 normal-case">
+                    {m.platform}
                   </Badge>
-                )}
-              </div>
-            ))
-          )}
-        </CardContent>
-      </Card>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground group-hover:text-foreground">
+                    {m.content}
+                  </span>
+                  {!m.success && (
+                    <Badge variant="destructive" className="shrink-0">
+                      失败
+                    </Badge>
+                  )}
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
 
-      <div className="flex flex-wrap gap-4 text-sm">
-        <Link href="/admin/documents" className="text-primary hover:underline">
-          → 管理文档
-        </Link>
-        <Link href="/admin/logs" className="text-primary hover:underline">
-          → 查看对话日志
-        </Link>
-        <Link href="/admin/chat" className="text-primary hover:underline">
-          → 调试聊天
-        </Link>
+        {/* 快捷入口 */}
+        <div className="grid gap-3">
+          {QUICK_LINKS.map((q) => {
+            const Icon = q.icon;
+            return (
+              <Link key={q.href} href={q.href} className="glow-ring group block">
+                <Card className="flex items-center gap-4 p-4">
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
+                    <Icon className="h-5 w-5" strokeWidth={1.7} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-display text-base font-medium tracking-tight">
+                      {q.label}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {q.desc}
+                    </div>
+                  </div>
+                  <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground transition-all duration-200 group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-primary" />
+                </Card>
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

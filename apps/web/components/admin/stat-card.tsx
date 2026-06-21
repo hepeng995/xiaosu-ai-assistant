@@ -19,7 +19,7 @@ const TONE_CLASS: Record<Tone, string> = {
   destructive: "bg-destructive/10 text-destructive",
 };
 
-/** 概览统计卡片：左侧着色图标 + 右侧数值与标签。 */
+/** 概览统计卡片：编号角标 + 着色图标 + 等宽大数字，悬停翡翠光晕。 */
 export function StatCard({
   label,
   value,
@@ -28,20 +28,24 @@ export function StatCard({
   tone = "default",
 }: StatCardProps) {
   return (
-    <Card className="flex items-center gap-4 p-5">
+    <Card className="glow-ring corner-frame group relative flex items-center gap-4 overflow-hidden p-5">
       <div
         className={cn(
-          "flex h-11 w-11 shrink-0 items-center justify-center rounded-lg",
+          "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
           TONE_CLASS[tone],
         )}
       >
-        <Icon className="h-5 w-5" />
+        <Icon className="h-5 w-5" strokeWidth={1.7} />
       </div>
-      <div className="min-w-0">
-        <div className="text-2xl font-bold leading-tight">{value}</div>
-        <div className="truncate text-xs text-muted-foreground">{label}</div>
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
+          {label}
+        </div>
+        <div className="mt-1 font-display text-[26px] font-semibold leading-none tracking-tight tabular-nums">
+          {value}
+        </div>
         {hint && (
-          <div className="truncate text-[11px] text-muted-foreground/70">
+          <div className="mt-1.5 truncate font-mono text-[11px] text-muted-foreground/60">
             {hint}
           </div>
         )}

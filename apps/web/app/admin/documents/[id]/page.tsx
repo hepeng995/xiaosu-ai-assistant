@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { api, type DocumentChunkItem } from "@/lib/api";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { PageHeader } from "@/components/admin/page-header";
 import { cn } from "@/lib/utils";
 
 function chunkLocation(chunk: DocumentChunkItem) {
@@ -36,15 +38,26 @@ export default function DocumentChunksPage() {
   }, [chunks, targetChunk]);
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">文档分块预览</h1>
-        <Link className={cn(buttonVariants({ variant: "outline", size: "sm" }))} href="/admin/documents">
-          返回文档列表
+    <div className="space-y-6">
+      <PageHeader
+        eyebrow="Knowledge · 02"
+        title="文档分块预览"
+        description="查看该文档被切分后的知识块与定位信息"
+      >
+        <Link
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
+          href="/admin/documents"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          返回列表
         </Link>
-      </div>
+      </PageHeader>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && (
+        <p className="rounded-lg border border-destructive/25 bg-destructive/8 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      )}
 
       <div className="space-y-3">
         {chunks.map((chunk) => {
@@ -53,14 +66,21 @@ export default function DocumentChunksPage() {
             <Card
               id={`chunk-${chunk.id}`}
               key={chunk.id}
-              className={active ? "border-primary ring-2 ring-primary/20" : ""}
+              className={cn(
+                "corner-frame",
+                active && "border-primary ring-2 ring-primary/20",
+              )}
             >
               <CardContent className="pt-6">
-                <div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                  <span>{chunkLocation(chunk)}</span>
-                  <span>#{chunk.chunk_index}</span>
+                <div className="mb-3 flex items-center justify-between gap-3 border-b border-border/50 pb-2">
+                  <span className="font-mono text-[11px] uppercase tracking-wider text-primary/80">
+                    {chunkLocation(chunk)}
+                  </span>
+                  <span className="font-mono text-[11px] tabular-nums text-muted-foreground/60">
+                    #{String(chunk.chunk_index).padStart(3, "0")}
+                  </span>
                 </div>
-                <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                <p className="whitespace-pre-wrap break-words text-sm leading-7 text-foreground/90">
                   {chunk.content}
                 </p>
               </CardContent>

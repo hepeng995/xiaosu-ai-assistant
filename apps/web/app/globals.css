@@ -1,61 +1,89 @@
+/* Obsidian Atelier · 墨色工坊主题 v2 (reload-trigger) */
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=JetBrains+Mono:wght@400;500;600&family=Noto+Serif+SC:wght@500;600;700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
+/* ──────────────────────────────────────────────────────────────
+   墨色工坊 · Obsidian Atelier
+   设计语言：editorial 衬线标题 + 翡翠青主调 + 琥珀点睛 + 精密点阵背景
+   ────────────────────────────────────────────────────────────── */
+
 :root {
-  --radius: 0.625rem;
-  --background: #ffffff;
-  --foreground: #0f172a;
-  --card: #ffffff;
-  --card-foreground: #0f172a;
-  --popover: #ffffff;
-  --popover-foreground: #0f172a;
-  --primary: #2563eb;
-  --primary-foreground: #ffffff;
-  --secondary: #f1f5f9;
-  --secondary-foreground: #0f172a;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-  --accent: #eff6ff;
-  --accent-foreground: #1e3a8a;
-  --destructive: #dc2626;
+  --radius: 0.75rem;
+
+  /* 工坊纸张（浅色）：暖象牙底 + 深墨绿黑前景 */
+  --background: #f6f4ee;
+  --foreground: #1b2421;
+  --card: #fdfcf8;
+  --card-foreground: #1b2421;
+  --popover: #fdfcf8;
+  --popover-foreground: #1b2421;
+
+  /* 主色：深翡翠松绿；强调色：赤陶琥珀 */
+  --primary: #0e7c66;
+  --primary-foreground: #f4fdfa;
+  --secondary: #ece8df;
+  --secondary-foreground: #2d3633;
+  --muted: #efece4;
+  --muted-foreground: #6c7670;
+  --accent: #c2570d;
+  --accent-foreground: #fff8ef;
+
+  --destructive: #b42318;
   --destructive-foreground: #ffffff;
-  --success: #16a34a;
+  --success: #157f4f;
   --success-foreground: #ffffff;
-  --warning: #d97706;
+  --warning: #b45309;
   --warning-foreground: #ffffff;
-  --info: #2563eb;
-  --border: #e2e8f0;
-  --input: #e2e8f0;
-  --ring: #2563eb;
+  --info: #0e7c66;
+
+  --border: #e2ddd0;
+  --input: #e2ddd0;
+  --ring: #0e7c66;
+
+  /* 点阵网格 / 光晕：浅色用暖灰点 + 翡翠光晕 */
+  --grid-dot: rgba(27, 36, 33, 0.045);
+  --glow-1: rgba(14, 124, 102, 0.10);
+  --glow-2: rgba(194, 87, 13, 0.06);
 }
 
 .dark {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --card: #111111;
-  --card-foreground: #ededed;
-  --popover: #111111;
-  --popover-foreground: #ededed;
-  --primary: #3b82f6;
-  --primary-foreground: #ffffff;
-  --secondary: #1f2937;
-  --secondary-foreground: #ededed;
-  --muted: #1f2937;
-  --muted-foreground: #9ca3af;
-  --accent: #1e3a8a;
-  --accent-foreground: #ffffff;
-  --destructive: #b91c1c;
-  --destructive-foreground: #ffffff;
-  --success: #22c55e;
-  --success-foreground: #052e16;
-  --warning: #f59e0b;
-  --warning-foreground: #1c1917;
-  --info: #3b82f6;
-  --border: #27272a;
-  --input: #27272a;
-  --ring: #3b82f6;
+  /* 黑曜石夜（深色）：teal-tinted 黑 + 雾白前景 */
+  --background: #080c0b;
+  --foreground: #e8ece5;
+  --card: #0f1514;
+  --card-foreground: #e8ece5;
+  --popover: #0f1514;
+  --popover-foreground: #e8ece5;
+
+  /* 主色：明亮翡翠青（深色下发光）；强调色：琥珀橙 */
+  --primary: #2dd4bf;
+  --primary-foreground: #042620;
+  --secondary: #18211f;
+  --secondary-foreground: #d8ddd4;
+  --muted: #141b19;
+  --muted-foreground: #8b9690;
+  --accent: #fb923c;
+  --accent-foreground: #1a0f04;
+
+  --destructive: #f87171;
+  --destructive-foreground: #1a0606;
+  --success: #34d399;
+  --success-foreground: #042016;
+  --warning: #fbbf24;
+  --warning-foreground: #1c1305;
+  --info: #2dd4bf;
+
+  --border: #1d2724;
+  --input: #1d2724;
+  --ring: #2dd4bf;
+
+  /* 点阵网格 / 光晕：深色用更亮的翡翠+琥珀光晕 */
+  --grid-dot: rgba(232, 236, 229, 0.04);
+  --glow-1: rgba(45, 212, 191, 0.14);
+  --glow-2: rgba(251, 146, 60, 0.08);
 }
 
 @theme inline {
@@ -83,23 +111,193 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
-  --font-mono: "Cascadia Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+
+  --font-sans: "Noto Serif SC", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-display: "Fraunces", "Noto Serif SC", "Songti SC", "STSong", serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
 }
 
 @layer base {
   * {
     border-color: var(--border);
   }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
   body {
-    background: var(--background);
+    background-color: var(--background);
+    /* 三层叠加：细密点阵网格 + 两束角落径向光晕，营造精密仪表盘暗房氛围 */
+    background-image:
+      radial-gradient(circle at 1px 1px, var(--grid-dot) 1px, transparent 0),
+      radial-gradient(ellipse 60% 50% at 12% -5%, var(--glow-1), transparent 70%),
+      radial-gradient(ellipse 50% 40% at 95% 8%, var(--glow-2), transparent 70%);
+    background-attachment: fixed;
+    background-size: 22px 22px, 100% 100%, 100% 100%;
     color: var(--foreground);
     font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv01";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* editorial 衬线标题：拉丁走 Fraunces（可变光学尺寸），中文走 Noto Serif SC */
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    letter-spacing: -0.015em;
+  }
+
+  /* 数字与编号统一走等宽，呈现精密仪表感 */
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 28%, transparent);
+    color: var(--foreground);
+  }
+
+  /* 自定义滚动条 —— 极细、翡翠色调 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--primary) 35%, transparent) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--primary) 30%, transparent);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--primary) 55%, transparent);
+    background-clip: padding-box;
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   工具类：字体族 / 角标 / 渐入 / 光晕
+   ────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .font-display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+  }
+  .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  /* 精密仪器四角刻度标记（用于卡片、登录框等重要容器） */
+  .corner-frame {
+    position: relative;
+  }
+  .corner-frame::before,
+  .corner-frame::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+    border-color: color-mix(in oklab, var(--primary) 60%, transparent);
+  }
+  .corner-frame::before {
+    top: -1px;
+    left: -1px;
+    border-top: 1px solid;
+    border-left: 1px solid;
+    border-top-left-radius: var(--radius);
+  }
+  .corner-frame::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom: 1px solid;
+    border-right: 1px solid;
+    border-bottom-right-radius: var(--radius);
+  }
+
+  /* 翡翠内发光（hover 时点亮卡片边缘） */
+  .glow-ring {
+    box-shadow:
+      0 1px 0 0 color-mix(in oklab, var(--foreground) 4%, transparent),
+      0 1px 2px 0 rgba(0, 0, 0, 0.04);
+    transition: box-shadow 0.35s ease, transform 0.35s ease, border-color 0.35s ease;
+  }
+  .glow-ring:hover {
+    border-color: color-mix(in oklab, var(--primary) 40%, var(--border));
+    box-shadow:
+      0 0 0 1px color-mix(in oklab, var(--primary) 18%, transparent),
+      0 12px 32px -12px color-mix(in oklab, var(--primary) 40%, transparent);
+  }
+}
+
+/* ──────────────────────────────────────────────────────────────
+   关键帧动画：渐入 / 光晕呼吸 / 扫描线
+   ────────────────────────────────────────────────────────────── */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes glow-breathe {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.9;
+    transform: scale(1.08);
+  }
+}
+@keyframes scan-line {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(100vh);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.animate-fade-in {
+  animation: fade-in 0.6s ease both;
+}
+.animate-glow-breathe {
+  animation: glow-breathe 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
