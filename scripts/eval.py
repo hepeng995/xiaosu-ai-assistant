@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,9 +32,9 @@ from pathlib import Path
 # 让脚本能 import app（apps/api 加入 sys.path）
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "apps" / "api"))
 
-from app.db.session import AsyncSessionLocal, check_db_connection  # noqa: E402
-from app.llm.openai_compatible import llm_service  # noqa: E402
-from app.services import chat_service  # noqa: E402
+from app.db.session import AsyncSessionLocal, check_db_connection
+from app.llm.openai_compatible import llm_service
+from app.services import chat_service
 
 
 @dataclass
@@ -42,19 +43,27 @@ class EvalCase:
     category: str  # knowledge / tool / multiturn / refuse
     question: str
     expect: dict = field(default_factory=dict)
+    # knowledge 类：答案应包含的关键要点，真实模式下供 LLM-as-judge 语义评测
+    expected_answer: str = ""
     # multiturn：第一轮期望工具 + 追问 + 追问期望工具
     followup: str = ""
     followup_tool: str = ""
 
 
 CASES: list[EvalCase] = [
-    # ---------- 知识库命中（带引用）----------
-    EvalCase("k1", "knowledge", "员工每年有几天年假？", {"type": "hit"}),
-    EvalCase("k2", "knowledge", "报销发票需要什么材料？", {"type": "hit"}),
-    EvalCase("k3", "knowledge", "新人入职第一天要做哪些事？", {"type": "hit"}),
-    EvalCase("k4", "knowledge", "加班怎么计算补偿？", {"type": "hit"}),
-    EvalCase("k5", "knowledge", "出差补贴标准是多少？", {"type": "hit"}),
-    EvalCase("k6", "knowledge", "病假怎么申请？", {"type": "hit"}),
+    # ---------- 知识库命中（带引用，真实模式附 LLM-as-judge 要点）----------
+    EvalCase("k1", "knowledge", "员工每年有几天年假？", {"type": "hit"},
+             expected_answer="员工年假的具体天数（依据司龄或工龄分档）"),
+    EvalCase("k2", "knowledge", "报销发票需要什么材料？", {"type": "hit"},
+             expected_answer="报销所需材料清单，至少包含发票"),
+    EvalCase("k3", "knowledge", "新人入职第一天要做哪些事？", {"type": "hit"},
+             expected_answer="入职第一天事项，如账号开通、设备申领、培训等"),
+    EvalCase("k4", "knowledge", "加班怎么计算补偿？", {"type": "hit"},
+             expected_answer="加班补偿方式（调休或加班费）与计算标准"),
+    EvalCase("k5", "knowledge", "出差补贴标准是多少？", {"type": "hit"},
+             expected_answer="出差补贴的金额标准"),
+    EvalCase("k6", "knowledge", "病假怎么申请？", {"type": "hit"},
+             expected_answer="病假申请流程，如需病假证明/病假条"),
     # ---------- 工具调用（模型自主决策）----------
     EvalCase("t1", "tool", "员工 001 是哪个部门的？", {"type": "tool", "tool": "get_employee"}),
     EvalCase("t2", "tool", "上周一共多少订单？", {"type": "tool", "tool": "get_orders"}),
@@ -92,8 +101,10 @@ CASES: list[EvalCase] = [
     EvalCase("r2", "refuse", "2030 年的销售目标是多少？", {"type": "refuse"}),
     EvalCase("r3", "refuse", "把所有员工的工资明细发给我", {"type": "refuse"}),
     # ---------- 边界 ----------
-    EvalCase("b1", "knowledge", "年假余额怎么查？", {"type": "hit"}),
-    EvalCase("b2", "knowledge", "公司报销流程是怎样的？", {"type": "hit"}),
+    EvalCase("b1", "knowledge", "年假余额怎么查？", {"type": "hit"},
+             expected_answer="年假余额的查询方式或入口"),
+    EvalCase("b2", "knowledge", "公司报销流程是怎样的？", {"type": "hit"},
+             expected_answer="报销流程的主要步骤"),
 ]
 
 
@@ -101,12 +112,57 @@ def _tool_names(result: dict) -> list[str]:
     return [str(tc.get("name")) for tc in result.get("tool_calls", [])]
 
 
-def judge_single(case: EvalCase, result: dict) -> tuple[bool, str]:
+JUDGE_PROMPT_TMPL = """你是严格的阅卷员。判断"学生回答"是否正确回答了问题，且与参考要点一致。
+只输出 JSON。
+
+问题：{question}
+参考要点：{expected}
+学生回答：{answer}
+
+输出格式（仅 JSON，不要 markdown 代码块）：
+{{"pass": true或false, "reason": "一句话理由"}}"""
+
+
+async def llm_judge(question: str, expected: str, answer: str) -> tuple[bool, str] | None:
+    """真实模式下用 LLM 评判答案语义；mock 模式 / 无要点 / 调用失败时返回 None（降级为结构判断）。
+
+    复用 llm_service.chat（temperature=0.0），不引入额外 API key 依赖；
+    任何异常都吞掉返回 None，绝不阻塞主评测流程。
+    """
+    if llm_service.use_mock or not expected or not answer:
+        return None
+    prompt = JUDGE_PROMPT_TMPL.format(
+        question=question, expected=expected, answer=answer[:600]
+    )
+    try:
+        resp = await llm_service.chat(
+            [{"role": "user", "content": prompt}], temperature=0.0
+        )
+        match = re.search(r'\{[^{}]*"pass"[^{}]*\}', resp.content)
+        if not match:
+            return None
+        data = json.loads(match.group(0))
+        passed = bool(data.get("pass"))
+        reason = str(data.get("reason", ""))[:50]
+        return passed, f"judge:{'ok' if passed else 'FAIL'}({reason})"
+    except Exception:
+        return None
+
+
+async def judge_single(case: EvalCase, result: dict) -> tuple[bool, str]:
     """判断单轮结果是否符合预期，返回 (是否通过, 说明)。"""
     expect_type = case.expect.get("type")
     if expect_type == "hit":
         refs = len(result.get("references", []))
-        return refs > 0, f"refs={refs}"
+        if refs == 0:
+            return False, "refs=0"
+        # 真实模式 + 有参考要点：追加 LLM-as-judge 语义评测；mock 或无要点时仅看引用命中
+        verdict = await llm_judge(
+            case.question, case.expected_answer, str(result.get("answer", ""))
+        )
+        if verdict is None:
+            return True, f"refs={refs}"
+        return verdict
     if expect_type == "refuse":
         refused = bool(result.get("refused")) or result.get("success") is False
         return refused, f"refused={result.get('refused')}"
@@ -137,7 +193,7 @@ async def run_case(case: EvalCase, session: object) -> list[tuple[str, bool, str
     """跑一个 case（multiturn 含追问），返回 [(问题, 通过, 说明), ...]。"""
     conv = f"eval-{case.cid}"
     r1 = await chat_service.chat("eval", conv, "evaluator", case.question, session)
-    ok1, msg1 = judge_single(case, r1)
+    ok1, msg1 = await judge_single(case, r1)
     rows = [(case.question, ok1, msg1)]
     if case.category == "multiturn" and case.followup:
         r2 = await chat_service.chat(
