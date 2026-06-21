@@ -1,27 +1,40 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { CircleCheck, CircleX } from "lucide-react";
 import { api } from "@/lib/api";
+import { PageHeader } from "@/components/admin/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { errorMessage } from "@/lib/format";
+
+interface SettingItem {
+  label: string;
+  value: string;
+  ok?: boolean;
+}
 
 interface SettingGroup {
   title: string;
-  items: { label: string; value: string; ok?: boolean }[];
+  items: SettingItem[];
 }
 
 export default function SettingsPage() {
   const [groups, setGroups] = useState<SettingGroup[]>([]);
   const [health, setHealth] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [modelActive, setModelActive] = useState<string | null>(null);
   const [modelDefault, setModelDefault] = useState<string>("");
   const [modelInput, setModelInput] = useState("");
   const [modelSaving, setModelSaving] = useState(false);
   const [modelMsg, setModelMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  useEffect(() => {
-    api.settings.get().then((data) => {
+  const load = useCallback(async () => {
+    try {
+      const data = await api.settings.get();
       const llm = data.llm as Record<string, unknown>;
       const emb = data.embedding as Record<string, unknown>;
       const rag = data.rag as Record<string, unknown>;
@@ -130,8 +143,16 @@ export default function SettingsPage() {
           ],
         },
       ]);
-    });
-    api.settings.health().then((h) => setHealth(h.database));
+      setError("");
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+    api.settings
+      .health()
+      .then((h) => setHealth(h.database))
+      .catch(() => setHealth("unknown"));
     api.settings
       .getModel()
       .then((d) => {
@@ -140,9 +161,16 @@ export default function SettingsPage() {
         setModelInput(d.active_model ?? "");
       })
       .catch(() => {
-        // 忽略模型读取错误
+        // 忽略模型读取错误，保持默认占位
       });
   }, []);
+
+  useEffect(() => {
+    const run = async () => {
+      await load();
+    };
+    run();
+  }, [load]);
 
   const saveModel = async () => {
     if (!modelInput.trim()) return;
@@ -161,13 +189,16 @@ export default function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">系统设置</h1>
+      <PageHeader title="系统设置" description="查看运行配置与密钥状态" />
+
       <p className="text-sm text-muted-foreground">
         数据库连接：
-        <span className={health === "ok" ? "text-green-600" : "text-destructive"}>
+        <span className={health === "ok" ? "text-success" : "text-destructive"}>
           {health || "检测中"}
         </span>
       </p>
+
+      {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Card>
         <CardHeader>
@@ -192,7 +223,7 @@ export default function SettingsPage() {
             </Button>
           </div>
           {modelMsg && (
-            <p className={`text-sm ${modelMsg.ok ? "text-green-600" : "text-destructive"}`}>
+            <p className={`text-sm ${modelMsg.ok ? "text-success" : "text-destructive"}`}>
               {modelMsg.text}
             </p>
           )}
@@ -203,29 +234,39 @@ export default function SettingsPage() {
       </Card>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {groups.map((g) => (
-          <Card key={g.title}>
-            <CardHeader>
-              <CardTitle className="text-base text-primary">{g.title}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <dl className="space-y-1 text-sm">
-                {g.items.map((it) => (
-                  <div key={it.label} className="flex justify-between">
-                    <dt className="text-muted-foreground">{it.label}</dt>
-                    <dd
-                      className={
-                        it.ok === false ? "text-destructive" : it.ok ? "text-green-600" : ""
-                      }
-                    >
-                      {it.value}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
-        ))}
+        {loading
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-40" />
+            ))
+          : groups.map((g) => (
+              <Card key={g.title}>
+                <CardHeader>
+                  <CardTitle className="text-base text-primary">{g.title}</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <dl className="space-y-1 text-sm">
+                    {g.items.map((it) => (
+                      <div key={it.label} className="flex items-center justify-between">
+                        <dt className="text-muted-foreground">{it.label}</dt>
+                        <dd
+                          className={`flex items-center gap-1.5 ${
+                            it.ok === false
+                              ? "text-destructive"
+                              : it.ok
+                                ? "text-success"
+                                : ""
+                          }`}
+                        >
+                          {it.ok === true && <CircleCheck className="h-3.5 w-3.5" />}
+                          {it.ok === false && <CircleX className="h-3.5 w-3.5" />}
+                          {it.value}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </CardContent>
+              </Card>
+            ))}
       </div>
     </div>
   );

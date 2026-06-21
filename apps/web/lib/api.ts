@@ -117,6 +117,8 @@ export const api = {
     remove: (id: string) =>
       request<{ success: boolean }>(`/api/admin/documents/${id}`, { method: "DELETE" }),
     chunks: (id: string) => request<DocumentChunkItem[]>(`/api/admin/documents/${id}/chunks`),
+    reindex: (id: string) =>
+      request<DocumentItem>(`/api/admin/documents/${id}/reindex`, { method: "POST" }),
   },
 
   messages: {

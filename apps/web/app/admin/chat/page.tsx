@@ -3,9 +3,20 @@
 import Link from "next/link";
 import { useState } from "react";
 import { api, type ChatResult, type ReferenceItem } from "@/lib/api";
+import { PageHeader } from "@/components/admin/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { errorMessage } from "@/lib/format";
+
+const EMPTY_RESULT: ChatResult = {
+  answer: "",
+  references: [],
+  tool_calls: [],
+  usage: {},
+  refused: false,
+};
 
 export default function ChatPage() {
   const [input, setInput] = useState("");
@@ -17,45 +28,32 @@ export default function ChatPage() {
     if (!input.trim()) return;
     setLoading(true);
     setError("");
-    setResult({ answer: "", references: [], tool_calls: [], usage: {}, refused: false });
+    setResult({ ...EMPTY_RESULT });
     try {
       const r = await api.chat.stream(input, {
         onToken: (token) =>
           setResult((prev) => ({
+            ...(prev ?? EMPTY_RESULT),
             answer: `${prev?.answer ?? ""}${token}`,
-            references: prev?.references ?? [],
-            tool_calls: prev?.tool_calls ?? [],
-            usage: prev?.usage ?? {},
-            refused: prev?.refused ?? false,
           })),
         onReferences: (references) =>
-          setResult((prev) => ({
-            answer: prev?.answer ?? "",
-            references,
-            tool_calls: prev?.tool_calls ?? [],
-            usage: prev?.usage ?? {},
-            refused: prev?.refused ?? false,
-          })),
+          setResult((prev) => ({ ...(prev ?? EMPTY_RESULT), references })),
         onDone: (done) =>
-          setResult((prev) => ({
-            answer: prev?.answer ?? "",
-            references: prev?.references ?? [],
-            tool_calls: prev?.tool_calls ?? [],
-            usage: prev?.usage ?? {},
-            refused: done.refused,
-          })),
+          setResult((prev) => ({ ...(prev ?? EMPTY_RESULT), refused: done.refused })),
       });
       setResult((prev) => ({ ...r, answer: prev?.answer || r.answer }));
     } catch (e) {
-      setError(`请求失败: ${e}`);
+      setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
   };
 
+  const thinking = loading && !result?.answer;
+
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold">调试聊天</h1>
+      <PageHeader title="调试聊天" description="在 Web 端测试 RAG 检索与工具调用" />
       <div className="flex gap-2">
         <Input
           placeholder="输入问题，如：员工每年有几天年假？"
@@ -77,9 +75,17 @@ export default function ChatPage() {
               <CardTitle className="text-base">回答</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="whitespace-pre-wrap break-all text-sm">{result.answer}</p>
+              {thinking ? (
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-2/3" />
+                </div>
+              ) : (
+                <p className="whitespace-pre-wrap break-all text-sm">{result.answer}</p>
+              )}
               {result.refused && (
-                <p className="mt-2 text-xs text-orange-600">（已拒答：知识库无相关依据）</p>
+                <p className="mt-2 text-xs text-warning">（已拒答：知识库无相关依据）</p>
               )}
             </CardContent>
           </Card>
