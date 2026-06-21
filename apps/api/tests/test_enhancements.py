@@ -1,9 +1,12 @@
 """增强项回归测试：软删除、审计、错误码、SSE 降级、成本估算、可观测性 noop。"""
 
 import asyncio
+import importlib.util
+import sys
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -26,6 +29,40 @@ def test_retrieval_sql_excludes_deleted_chunks() -> None:
     """真实/Mock 检索 SQL 都应排除已软删除 chunk。"""
     assert "c.deleted_at IS NULL" in str(retrieval_service._VECTOR_SQL)
     assert "c.deleted_at IS NULL" in str(retrieval_service._LIST_SQL)
+
+
+@pytest.mark.asyncio
+async def test_soft_delete_document_marks_chunks_deleted() -> None:
+    """普通删除文档时应同步软删除 chunks，保证审计与检索过滤一致。"""
+    doc_id = uuid.uuid4()
+    executed: list[Any] = []
+    commits = 0
+    now = datetime.now(UTC)
+    doc = SimpleNamespace(id=doc_id, status="indexed", deleted_at=None)
+
+    class FakeSession:
+        async def get(self, _model: object, key: uuid.UUID) -> object | None:
+            return doc if key == doc_id else None
+
+        async def execute(self, stmt: object) -> None:
+            executed.append(stmt)
+
+        async def commit(self) -> None:
+            nonlocal commits
+            commits += 1
+
+    result = await routes_admin_documents.document_service.soft_delete_document(
+        doc_id, FakeSession()  # type: ignore[arg-type]
+    )
+
+    assert result is True
+    assert doc.status == "deleted"
+    assert doc.deleted_at is not None
+    assert doc.deleted_at >= now
+    assert commits == 1
+    assert len(executed) == 1
+    assert "document_chunks" in str(executed[0])
+    assert "deleted_at" in str(executed[0])
 
 
 @pytest.mark.asyncio
@@ -447,6 +484,36 @@ def test_observability_llm_span_noop_when_unconfigured() -> None:
         state["usage"] = {"input": 1, "output": 1, "unit": "TOKENS"}
 
 
+def test_observability_generic_span_noop_when_unconfigured() -> None:
+    """未配置 Langfuse 时通用 span 也应为 noop，并允许写 metadata。"""
+    observability._reset_for_test()
+    with observability.trace_span("chat", metadata={"platform": "web"}) as state:
+        state["metadata"] = {"ok": True}
+        state["output"] = {"answer": "hello"}
+
+
 def test_observability_trace_id_var_default() -> None:
     """trace_id_var 默认值为占位。"""
     assert observability.trace_id_var.get() == "-"
+
+
+def test_eval_report_summary_groups_by_category() -> None:
+    """eval JSON 应输出分维度统计，便于真实联调后看短板。"""
+    script_path = Path(__file__).resolve().parents[3] / "scripts" / "eval.py"
+    spec = importlib.util.spec_from_file_location("xiaosu_eval", script_path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    rows = [
+        {"category": "knowledge", "pass": True},
+        {"category": "knowledge", "pass": False},
+        {"category": "tool", "pass": True},
+        {"category": "追问", "pass": True},
+    ]
+    summary = module.build_summary(rows)
+
+    assert summary["knowledge"] == {"passed": 1, "total": 2, "accuracy": 50.0}
+    assert summary["tool"] == {"passed": 1, "total": 1, "accuracy": 100.0}
+    assert summary["追问"] == {"passed": 1, "total": 1, "accuracy": 100.0}

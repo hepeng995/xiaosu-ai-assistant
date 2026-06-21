@@ -28,10 +28,10 @@
 | RAG 知识库问答 | 支持 `md` / `pdf` / `docx` / `txt` 上传，解析、分块、向量化后写入 PostgreSQL + pgvector；回答必须带文件名、章节 / 页码 / 段落、原文 quote 与 score |
 | 拒答机制 | 检索无命中、低于阈值、隐私敏感问题、无依据未来问题都会友好拒答，避免编造 |
 | 自研 Tool Calling Agent | 工具选择由 LLM 根据 Tool Schema 自主决定，主循环最多 3 轮；内置知识库、员工、考勤、订单、当前时间工具 |
-| IM 双平台 | 钉钉与飞书共用 Chat Service 主链路，分别处理验签、消息解析与回复；飞书支持 CardKit 流式卡片并可降级为普通 post |
+| IM 双平台 | 钉钉与飞书共用 Chat Service 主链路，分别处理验签、消息解析与回复；飞书支持 CardKit 流式卡片、文件上传问答、@ 成员富文本展示并可降级为普通 post |
 | Web 管理后台 | 文档管理、分块预览、对话日志、系统设置、调试聊天、Token / 成本概览 |
 | MCP Server | 支持 Claude Desktop / Cursor 通过 stdio 或 Streamable HTTP 调用小苏能力 |
-| 工程化交付 | Docker Compose 一键启动，uv + pnpm 固定包管理，结构化日志、trace_id、自动化测试、Mock 流程全覆盖 |
+| 工程化交付 | Docker Compose 一键启动，uv + pnpm 固定包管理，结构化日志、trace_id、Langfuse noop 降级、自动化测试、Mock 流程全覆盖 |
 
 ## 功能截图
 
@@ -368,6 +368,9 @@ git log -p | grep -iE "api_key|secret|sk-"
 | 拒答 | CEO 的家庭住址？ | 隐私拒答 |
 | 拒答 | 2030 年销售目标？ | 当前知识库无依据时拒答 |
 | 鲁棒性 | 模型 Key 无效或服务超时 | 返回友好兜底，不向 IM 暴露 500 或技术细节 |
+| 飞书富消息 | 在群聊中 @ 成员并上传 `md/pdf/docx/txt` 文件 | 文件加入知识库后可继续问答，回复保留 @ 成员富文本 |
+
+`scripts/eval.py --json` 会输出 `summary` 分维度统计（knowledge / tool / multiturn / refuse），便于真实 LLM 联调后快速定位短板。真实钉钉 / 飞书沙箱验收需要配置平台密钥、公网 HTTPS 回调、LLM / Embedding Key；未配置时仍可跑 mock 结构验证。
 
 ## Roadmap
 
@@ -390,11 +393,11 @@ git log -p | grep -iE "api_key|secret|sk-"
 
 | 方向 | 优先级 | 说明 |
 |---|---|---|
-| 真实 LLM / Embedding 联调脚本 | 高 | 补充一键 smoke test，验证真实模型、真实向量检索与引用质量 |
-| 钉钉 / 飞书沙箱验收记录 | 高 | 固化 IM 平台回调配置、验签、群聊 @ 与私聊验收步骤 |
-| 集成测试 | 中 | 覆盖上传文档到 RAG 问答、IM callback 到最终回复的端到端路径 |
-| 前端组件系统 | 中 | 引入 shadcn/ui 或完善当前组件规范，提升表格、表单、状态反馈一致性 |
-| Langfuse + Evals | 中 | 接入真实 trace、token / cost 观测与离线评测集 |
+| 真实 LLM / Embedding 联调脚本 | 高 | 已有 eval 脚本；真实结果需填入平台 Key 后执行 |
+| 钉钉 / 飞书沙箱验收记录 | 高 | 已固化 IM 回调、验签、群聊 @、文件上传问答路径；截图与真实输出需在沙箱跑完后补充 |
+| 集成测试 | 中 | pytest 覆盖上传、IM callback、流式、MCP、成本、观测与富消息关键路径 |
+| 前端组件系统 | 已完成 | 已接入 shadcn 风格组件并覆盖后台主要页面 |
+| Langfuse + Evals | 已完成 | Langfuse 未配置时 noop，LLM/Embedding/Chat/Retrieval/Tool span 可关联 trace_id；eval 输出分维度 JSON |
 | 权限与多租户 | 低 | 后台登录、角色权限、租户隔离、审计导出 |
 
 ## 常见问题

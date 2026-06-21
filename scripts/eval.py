@@ -117,6 +117,22 @@ def judge_single(case: EvalCase, result: dict) -> tuple[bool, str]:
     return False, "unknown-expect"
 
 
+def build_summary(rows: list[dict]) -> dict[str, dict[str, float | int]]:
+    """按类别汇总通过数、总数与准确率。"""
+    summary: dict[str, dict[str, float | int]] = {}
+    for row in rows:
+        category = str(row.get("category", "unknown"))
+        item = summary.setdefault(category, {"passed": 0, "total": 0, "accuracy": 0.0})
+        item["total"] = int(item["total"]) + 1
+        if row.get("pass"):
+            item["passed"] = int(item["passed"]) + 1
+    for item in summary.values():
+        total = int(item["total"])
+        passed = int(item["passed"])
+        item["accuracy"] = round(passed / total * 100, 1) if total else 0.0
+    return summary
+
+
 async def run_case(case: EvalCase, session: object) -> list[tuple[str, bool, str]]:
     """跑一个 case（multiturn 含追问），返回 [(问题, 通过, 说明), ...]。"""
     conv = f"eval-{case.cid}"
@@ -166,9 +182,20 @@ async def main(as_json: bool) -> int:
 
     if as_json:
         out = Path(__file__).resolve().parent / "eval-report.json"
+        summary = build_summary(all_rows)
         out.write_text(
-            json.dumps({"mode": mode, "passed": passed, "total": total, "rows": all_rows},
-                       ensure_ascii=False, indent=2),
+            json.dumps(
+                {
+                    "mode": mode,
+                    "passed": passed,
+                    "total": total,
+                    "accuracy": round(rate, 1),
+                    "summary": summary,
+                    "rows": all_rows,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
             encoding="utf-8",
         )
         print(f"报表已写入：{out}")

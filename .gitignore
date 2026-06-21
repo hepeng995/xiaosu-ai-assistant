@@ -51,6 +51,8 @@ storage/parsed/*
 
 # ---------- 本地工具缓存与临时截图（不入库）----------
 .playwright-mcp/
+.claude/
+.pnpm-store/
 
 # ---------- 编辑器与系统 ----------
 .gstack/

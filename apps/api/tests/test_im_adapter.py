@@ -130,6 +130,97 @@ def test_feishu_parse_event_group_strip_mention() -> None:
     assert msg.text == "员工年假几天"
 
 
+def test_feishu_parse_event_preserves_non_bot_mentions() -> None:
+    """解析群聊文本时应剥离机器人占位，同时保留其他被 @ 成员用于富消息回复。"""
+    from app.im.feishu import parse_event
+
+    payload = {
+        "schema": "2.0",
+        "header": {"event_type": "im.message.receive_v1"},
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}},
+            "message": {
+                "message_id": "om_mention",
+                "chat_id": "oc_mention",
+                "chat_type": "group",
+                "message_type": "text",
+                "content": json.dumps({"text": "@_user_1 帮 @_user_2 查一下年假"}),
+                "mentions": [
+                    {"key": "@_user_1", "id": {"open_id": "ou_bot"}, "name": "小苏"},
+                    {"key": "@_user_2", "id": {"open_id": "ou_2"}, "name": "李四"},
+                ],
+            },
+        },
+    }
+    msg = parse_event(payload)
+
+    assert msg.text == "帮 查一下年假"
+    assert [m.open_id for m in msg.mentions] == ["ou_2"]
+    assert msg.mentions[0].name == "李四"
+
+
+def test_feishu_parse_file_event_as_attachment() -> None:
+    """飞书文件消息应转换为 IMAttachment，供路由层下载并索引。"""
+    from app.im.feishu import parse_event
+
+    payload = {
+        "schema": "2.0",
+        "header": {"event_type": "im.message.receive_v1"},
+        "event": {
+            "sender": {"sender_id": {"open_id": "ou_1"}},
+            "message": {
+                "message_id": "om_file",
+                "chat_id": "oc_file",
+                "chat_type": "p2p",
+                "message_type": "file",
+                "content": json.dumps(
+                    {"file_key": "file_v2_x", "file_name": "制度.md", "file_size": 128}
+                ),
+            },
+        },
+    }
+    msg = parse_event(payload)
+
+    assert msg.text == ""
+    assert len(msg.attachments) == 1
+    assert msg.attachments[0].file_key == "file_v2_x"
+    assert msg.attachments[0].filename == "制度.md"
+    assert msg.attachments[0].file_type == "md"
+
+
+def test_format_feishu_post_with_mentions() -> None:
+    """飞书 post 回复应能用 at 富文本元素展示被 @ 群成员。"""
+    from app.im.base import IMMention
+    from app.im.formatter import format_feishu_post
+
+    post = format_feishu_post(
+        "已为你查询。",
+        [],
+        [],
+        mentions=[IMMention(open_id="ou_2", name="李四")],
+    )
+    segments = [seg for row in post["zh_cn"]["content"] for seg in row]
+
+    assert {"tag": "at", "user_id": "ou_2", "user_name": "李四"} in segments
+
+
+def test_im_verify_rejects_missing_secret_in_production(monkeypatch: pytest.MonkeyPatch) -> None:
+    """生产环境缺少 IM 密钥时必须拒绝验签，不能沿用开发放行。"""
+    from app.im import dingtalk, feishu
+
+    monkeypatch.setattr(dingtalk.settings, "APP_ENV", "production")
+    monkeypatch.setattr(dingtalk.settings, "DINGTALK_APP_SECRET", "replace_me")
+    monkeypatch.setattr(dingtalk.settings, "DINGTALK_CALLBACK_TOKEN", "replace_me")
+    monkeypatch.setattr(feishu.settings, "APP_ENV", "production")
+    monkeypatch.setattr(feishu.settings, "FEISHU_VERIFICATION_TOKEN", "replace_me")
+    monkeypatch.setattr(feishu.settings, "FEISHU_ENCRYPT_KEY", "replace_me")
+
+    assert dingtalk.verify_sign("123", "any") is False
+    assert dingtalk.verify_event_signature("1", "n", "e", "sig") is False
+    assert feishu.verify_token("any") is False
+    assert feishu.verify_signature("1", "n", "body", "sig") is False
+
+
 def test_feishu_verify_dev_mode() -> None:
     """未配置 ENCRYPT_KEY/VERIFICATION_TOKEN（开发模式）应放行验签与 token 校验。"""
     from app.im.feishu import verify_signature, verify_token
@@ -401,3 +492,110 @@ async def test_feishu_stream_reply_batches_and_appends_references(
     assert "参考来源" in updates[-1][1]
     assert "员工手册.md" in updates[-1][1]
     assert len(closes) == 1
+
+
+@pytest.mark.asyncio
+async def test_handle_feishu_file_upload_indexes_supported_attachment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """飞书文件消息应下载、复用文档服务上传并同步索引，然后回复成功文案。"""
+    from loguru import logger
+
+    from app.api import routes_im
+    from app.im.base import IMAttachment, IMMessage
+
+    uploaded: list[tuple[str, bytes]] = []
+    indexed: list[object] = []
+    replies: list[tuple[str, dict, str]] = []
+    doc = type("Doc", (), {"id": "doc-1", "original_filename": "制度.md"})()
+
+    async def fake_download(_message_id: str, _attachment: IMAttachment) -> bytes:
+        return b"# new policy"
+
+    async def fake_upload(file: object, _session: object) -> object:
+        uploaded.append((file.filename, await file.read()))
+        return doc
+
+    async def fake_index(document_id: object) -> None:
+        indexed.append(document_id)
+
+    async def fake_reply(receive_id: str, content: dict, msg_type: str = "text") -> bool:
+        replies.append((receive_id, content, msg_type))
+        return True
+
+    class FakeSession:
+        async def __aenter__(self) -> "FakeSession":
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+        async def refresh(self, _obj: object) -> None:
+            return None
+
+    monkeypatch.setattr(routes_im, "download_feishu_file", fake_download)
+    monkeypatch.setattr(routes_im.document_service, "upload_document", fake_upload)
+    monkeypatch.setattr(routes_im, "index_document", fake_index)
+    monkeypatch.setattr(routes_im, "reply_message", fake_reply)
+    monkeypatch.setattr(routes_im, "AsyncSessionLocal", lambda: FakeSession())
+
+    im_msg = IMMessage(
+        platform="feishu",
+        message_id="om_file",
+        conversation_id="oc_file",
+        conversation_type="private",
+        user_id="ou_1",
+        text="",
+        raw={},
+        attachments=[
+            IMAttachment(file_key="file_v2_x", filename="制度.md", file_size=12, file_type="md")
+        ],
+    )
+
+    assert await routes_im._handle_feishu_file_message(im_msg, logger.bind()) is True
+    assert uploaded == [("制度.md", b"# new policy")]
+    assert indexed == ["doc-1"]
+    assert replies[0][0] == "oc_file"
+    assert replies[0][2] == "post"
+    texts = [seg["text"] for row in replies[0][1]["zh_cn"]["content"] for seg in row]
+    assert any("已加入知识库" in text for text in texts)
+
+
+@pytest.mark.asyncio
+async def test_handle_feishu_file_upload_rejects_unsupported_attachment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """飞书文件问答只允许知识库白名单格式，非法格式应友好回复且不下载。"""
+    from loguru import logger
+
+    from app.api import routes_im
+    from app.im.base import IMAttachment, IMMessage
+
+    replies: list[dict] = []
+
+    async def fake_download(*_args: object) -> bytes:
+        raise AssertionError("非法格式不应下载文件")
+
+    async def fake_reply(_receive_id: str, content: dict, msg_type: str = "text") -> bool:
+        replies.append(content)
+        return True
+
+    monkeypatch.setattr(routes_im, "download_feishu_file", fake_download)
+    monkeypatch.setattr(routes_im, "reply_message", fake_reply)
+
+    im_msg = IMMessage(
+        platform="feishu",
+        message_id="om_file",
+        conversation_id="oc_file",
+        conversation_type="private",
+        user_id="ou_1",
+        text="",
+        raw={},
+        attachments=[
+            IMAttachment(file_key="file_v2_x", filename="合同.xlsx", file_size=12, file_type="xlsx")
+        ],
+    )
+
+    assert await routes_im._handle_feishu_file_message(im_msg, logger.bind()) is True
+    texts = [seg["text"] for row in replies[0]["zh_cn"]["content"] for seg in row]
+    assert any("仅支持" in text for text in texts)
