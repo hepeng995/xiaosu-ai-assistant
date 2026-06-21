@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents.prompts import SYSTEM_PROMPT
+from app.agents.prompts import RETRIEVAL_NUDGE, SYSTEM_PROMPT
 from app.agents.tool_registry import (
     default_tools,
     execute_tool,
@@ -94,6 +94,12 @@ async def prepare_response(
         content, tool_calls_raw, usage = await llm_service.chat_with_tools(conversation, schemas)
         total_usage = _merge_usage(total_usage, usage)
         if not tool_calls_raw:
+            # 多轮陷阱兜底（仅第一轮）：LLM 若复述历史答案而不调工具，references 会为空，
+            # 进而被误判拒答（同问题第二次问必复现）。追加提醒让它重新检索获取本次引用。
+            if _round == 0:
+                conversation.append({"role": "assistant", "content": content})
+                conversation.append({"role": "user", "content": RETRIEVAL_NUDGE})
+                continue
             return PreparedAgentResult(
                 conversation=conversation,
                 draft_answer=content,
@@ -174,6 +180,11 @@ async def prepare_response_stream(
         content, tool_calls_raw, usage = await llm_service.chat_with_tools(conversation, schemas)
         total_usage = _merge_usage(total_usage, usage)
         if not tool_calls_raw:
+            # 多轮陷阱兜底（仅第一轮）：与 prepare_response 同源，避免复述历史导致 references 空。
+            if _round == 0:
+                conversation.append({"role": "assistant", "content": content})
+                conversation.append({"role": "user", "content": RETRIEVAL_NUDGE})
+                continue
             yield {
                 "type": "prepared",
                 "data": PreparedAgentResult(
