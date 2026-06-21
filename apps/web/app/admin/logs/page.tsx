@@ -34,6 +34,14 @@ const PLATFORM_FILTERS = [
   { value: "feishu", label: "飞书" },
 ];
 
+function toolNames(message: MessageItem): string {
+  return (
+    (message.tool_calls as { name: string }[] | null)
+      ?.map((tool) => tool.name)
+      .join(",") ?? ""
+  );
+}
+
 export default function LogsPage() {
   const [items, setItems] = useState<MessageItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,12 +102,12 @@ export default function LogsPage() {
         </Button>
       </PageHeader>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
         <Input
           placeholder="搜索内容或用户…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs"
+          className="w-full sm:max-w-xs"
         />
         <Segmented
           options={STATUS_FILTERS}
@@ -115,7 +123,78 @@ export default function LogsPage() {
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <Card>
+      <div className="space-y-3 md:hidden">
+        {loading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-44" />
+          ))
+        ) : filtered.length === 0 ? (
+          <Card>
+            <CardContent className="p-4">
+              <EmptyState
+                icon={Inbox}
+                title={items.length === 0 ? "暂无对话记录" : "没有匹配的记录"}
+                description={
+                  items.length === 0
+                    ? "员工在 IM 中 @ 机器人后，对话会记录在这里"
+                    : "试试调整搜索或筛选条件"
+                }
+              />
+            </CardContent>
+          </Card>
+        ) : (
+          filtered.map((m) => {
+            const tools = toolNames(m);
+            return (
+              <Card key={m.id} className="corner-frame">
+                <CardContent className="space-y-3 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+                      {shortTime(m.created_at)}
+                    </span>
+                    <Badge variant={m.success ? "secondary" : "destructive"}>
+                      {m.success ? "成功" : "失败"}
+                    </Badge>
+                  </div>
+                  <div className="min-w-0">
+                    <div className="font-medium">{m.platform} · {m.role}</div>
+                    <div className="break-words text-xs text-muted-foreground">
+                      {m.user_name || m.user_id}
+                    </div>
+                  </div>
+                  <p className="whitespace-pre-wrap break-words rounded-lg bg-muted/45 p-3 text-sm leading-6">
+                    {m.content}
+                  </p>
+                  <dl className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-background/55 p-2">
+                      <dt className="text-muted-foreground">工具</dt>
+                      <dd className="mt-1 break-words text-primary">{tools || "—"}</dd>
+                    </div>
+                    <div className="rounded-lg bg-background/55 p-2">
+                      <dt className="text-muted-foreground">Token</dt>
+                      <dd className="mt-1 font-mono tabular-nums">{m.total_tokens}</dd>
+                    </div>
+                    <div className="rounded-lg bg-background/55 p-2">
+                      <dt className="text-muted-foreground">成本</dt>
+                      <dd className="mt-1 font-mono tabular-nums">
+                        {cost(m.estimated_cost)}
+                      </dd>
+                    </div>
+                    <div className="rounded-lg bg-background/55 p-2">
+                      <dt className="text-muted-foreground">耗时</dt>
+                      <dd className="mt-1 font-mono tabular-nums">
+                        {latency(m.latency_ms)}
+                      </dd>
+                    </div>
+                  </dl>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </div>
+
+      <Card className="hidden md:block">
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -142,10 +221,7 @@ export default function LogsPage() {
                 ))
               ) : (
                 filtered.map((m) => {
-                  const tools =
-                    (m.tool_calls as { name: string }[] | null)
-                      ?.map((t) => t.name)
-                      .join(",") ?? "";
+                  const tools = toolNames(m);
                   return (
                     <TableRow key={m.id} className="transition-colors hover:bg-muted/50">
                       <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -158,7 +234,7 @@ export default function LogsPage() {
                         </div>
                       </TableCell>
                       <TableCell>{m.role}</TableCell>
-                      <TableCell className="max-w-md whitespace-pre-wrap break-all">
+                      <TableCell className="max-w-md whitespace-pre-wrap break-words">
                         {m.content}
                       </TableCell>
                       <TableCell className="text-primary">{tools}</TableCell>

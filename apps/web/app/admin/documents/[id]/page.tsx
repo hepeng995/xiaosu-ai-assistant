@@ -71,9 +71,9 @@ export default function DocumentChunksPage() {
                 active && "border-primary ring-2 ring-primary/20",
               )}
             >
-              <CardContent className="pt-6">
-                <div className="mb-3 flex items-center justify-between gap-3 border-b border-border/50 pb-2">
-                  <span className="font-mono text-[11px] uppercase tracking-wider text-primary/80">
+              <CardContent className="p-4 sm:p-6">
+                <div className="mb-3 flex flex-col gap-1.5 border-b border-border/50 pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                  <span className="break-words font-mono text-[11px] uppercase tracking-wider text-primary/80">
                     {chunkLocation(chunk)}
                   </span>
                   <span className="font-mono text-[11px] tabular-nums text-muted-foreground/60">

@@ -161,12 +161,12 @@ export default function DocumentsPage() {
         </label>
       </PageHeader>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="grid gap-3 sm:flex sm:flex-wrap sm:items-center">
         <Input
           placeholder="搜索文件名…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="max-w-xs"
+          className="w-full sm:max-w-xs"
         />
         <Segmented
           options={STATUS_FILTERS}
@@ -177,7 +177,87 @@ export default function DocumentsPage() {
 
       {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
 
-      <Card>
+      <div className="space-y-3 md:hidden">
+        {loading ? (
+          Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-36" />
+          ))
+        ) : filtered.length === 0 ? (
+          <Card>
+            <CardContent className="p-4">
+              <EmptyState
+                icon={Inbox}
+                title={docs.length === 0 ? "暂无文档" : "没有匹配的文档"}
+                description={
+                  docs.length === 0
+                    ? "点击上方上传第一个知识库文档"
+                    : "试试调整搜索或筛选条件"
+                }
+              />
+            </CardContent>
+          </Card>
+        ) : (
+          filtered.map((d) => (
+            <Card key={d.id} className="corner-frame">
+              <CardContent className="space-y-3 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 space-y-1">
+                    <Link
+                      className="break-words font-medium transition-colors hover:text-primary"
+                      href={`/admin/documents/${d.id}`}
+                    >
+                      {d.original_filename}
+                    </Link>
+                    <div className="flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
+                      <span>{d.file_type}</span>
+                      <span>{fileSize(d.file_size)}</span>
+                      <span>v{d.version}</span>
+                    </div>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={cn("shrink-0", STATUS_CLASS[d.status])}
+                  >
+                    {d.status}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <Link
+                    className={cn(
+                      buttonVariants({ variant: "outline", size: "sm" }),
+                      d.status !== "failed" && "col-span-2",
+                    )}
+                    href={`/admin/documents/${d.id}`}
+                  >
+                    查看
+                  </Link>
+                  {d.status === "failed" ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleReindex(d.id, d.original_filename)}
+                    >
+                      重新索引
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="col-span-2 border-destructive/30 text-destructive hover:bg-destructive/10"
+                    onClick={() =>
+                      setConfirmTarget({ id: d.id, name: d.original_filename })
+                    }
+                  >
+                    删除
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))
+        )}
+      </div>
+
+      <Card className="hidden md:block">
         <CardHeader>
           <CardTitle>已上传文档</CardTitle>
           <CardDescription>

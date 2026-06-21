@@ -195,7 +195,7 @@ export default function SettingsPage() {
         description="查看运行配置与密钥状态"
       />
 
-      <p className="text-sm text-muted-foreground">
+      <p className="break-words text-sm text-muted-foreground">
         数据库连接：
         <span className={health === "ok" ? "text-success" : "text-destructive"}>
           {health || "检测中"}
@@ -205,24 +205,28 @@ export default function SettingsPage() {
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Card>
-        <CardHeader>
+        <CardHeader className="p-4 sm:p-6">
           <CardTitle className="text-base">运行时模型（切换后新对话生效）</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-3 p-4 pt-0 sm:p-6 sm:pt-0">
           <p className="text-sm text-muted-foreground">
             当前：
-            <span className="ml-1 font-medium text-foreground">
+            <span className="ml-1 break-words font-medium text-foreground">
               {modelActive ?? `使用默认（${modelDefault || "—"}）`}
             </span>
           </p>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Input
               placeholder="如 gpt-4o-mini / deepseek-chat"
               value={modelInput}
               onChange={(e) => setModelInput(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && saveModel()}
             />
-            <Button onClick={saveModel} disabled={modelSaving || !modelInput.trim()}>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={saveModel}
+              disabled={modelSaving || !modelInput.trim()}
+            >
               {modelSaving ? "保存中…" : "保存"}
             </Button>
           </div>
@@ -244,16 +248,19 @@ export default function SettingsPage() {
             ))
           : groups.map((g) => (
               <Card key={g.title}>
-                <CardHeader>
+                <CardHeader className="p-4 sm:p-6">
                   <CardTitle className="text-base text-primary">{g.title}</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="p-4 pt-0 sm:p-6 sm:pt-0">
                   <dl className="space-y-1 text-sm">
                     {g.items.map((it) => (
-                      <div key={it.label} className="flex items-center justify-between">
+                      <div
+                        key={it.label}
+                        className="flex flex-col gap-1 border-b border-border/35 py-2 last:border-0 sm:flex-row sm:items-center sm:justify-between"
+                      >
                         <dt className="text-muted-foreground">{it.label}</dt>
                         <dd
-                          className={`flex items-center gap-1.5 ${
+                          className={`flex min-w-0 items-center gap-1.5 break-words sm:justify-end sm:text-right ${
                             it.ok === false
                               ? "text-destructive"
                               : it.ok

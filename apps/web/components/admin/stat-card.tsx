@@ -28,10 +28,10 @@ export function StatCard({
   tone = "default",
 }: StatCardProps) {
   return (
-    <Card className="glow-ring corner-frame group relative flex items-center gap-4 overflow-hidden p-5">
+    <Card className="glow-ring corner-frame group relative flex items-center gap-3 overflow-hidden p-4 sm:gap-4 sm:p-5">
       <div
         className={cn(
-          "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl",
+          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl sm:h-12 sm:w-12",
           TONE_CLASS[tone],
         )}
       >
@@ -41,7 +41,7 @@ export function StatCard({
         <div className="truncate font-mono text-[10px] uppercase tracking-[0.18em] text-muted-foreground/70">
           {label}
         </div>
-        <div className="mt-1 font-display text-[26px] font-semibold leading-none tracking-tight tabular-nums">
+        <div className="mt-1 break-words font-display text-[22px] font-semibold leading-none sm:text-[26px] sm:tracking-tight tabular-nums">
           {value}
         </div>
         {hint && (

@@ -59,11 +59,11 @@ export default function AdminLayout({
   }
 
   return (
-    <div className="relative flex min-h-screen">
+    <div className="relative flex min-h-dvh">
       {/* 侧边栏：移动端为抽屉，桌面端（md+）固定 */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 transform flex-col border-r border-border/70 bg-card/80 backdrop-blur-xl transition-transform duration-300 ease-out",
+          "fixed inset-y-0 left-0 z-50 flex w-[calc(100vw-1rem)] max-w-[18rem] transform flex-col border-r border-border/70 bg-card/80 backdrop-blur-xl transition-transform duration-300 ease-out md:w-72",
           "md:static md:z-auto md:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
@@ -186,7 +186,7 @@ export default function AdminLayout({
       {/* 主区 */}
       <div className="flex min-w-0 flex-1 flex-col">
         {/* 移动端顶部栏 */}
-        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border/60 bg-card/80 px-4 py-3 backdrop-blur-xl md:hidden">
+        <header className="sticky top-0 z-30 flex items-center gap-3 border-b border-border/60 bg-card/80 px-3 py-3 backdrop-blur-xl md:hidden">
           <button
             type="button"
             onClick={() => setOpen(true)}
@@ -204,7 +204,7 @@ export default function AdminLayout({
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto p-4 md:p-6 lg:p-8">{children}</main>
+        <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 lg:p-8">{children}</main>
       </div>
     </div>
   );

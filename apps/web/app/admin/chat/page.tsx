@@ -58,14 +58,14 @@ export default function ChatPage() {
         title="调试聊天"
         description="在 Web 端测试 RAG 检索与工具调用"
       />
-      <div className="flex gap-2">
+      <div className="flex flex-col gap-2 sm:flex-row">
         <Input
           placeholder="输入问题，如：员工每年有几天年假？"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
         />
-        <Button onClick={send} disabled={loading}>
+        <Button className="w-full sm:w-auto" onClick={send} disabled={loading}>
           {loading ? "发送中…" : "发送"}
         </Button>
       </div>
@@ -86,7 +86,9 @@ export default function ChatPage() {
                   <Skeleton className="h-4 w-2/3" />
                 </div>
               ) : (
-                <p className="whitespace-pre-wrap break-all text-sm">{result.answer}</p>
+                <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                  {result.answer}
+                </p>
               )}
               {result.refused && (
                 <p className="mt-2 text-xs text-warning">（已拒答：知识库无相关依据）</p>
@@ -100,9 +102,9 @@ export default function ChatPage() {
                 <CardTitle className="text-base">参考来源（{result.references.length}）</CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="space-y-1 text-sm">
+                <ul className="space-y-3 text-sm">
                   {result.references.map((r: ReferenceItem, i) => (
-                    <li key={r.chunk_id || i} className="text-primary">
+                    <li key={r.chunk_id || i} className="break-words text-primary">
                       <Link
                         className="hover:underline"
                         href={`/admin/documents/${r.document_id}?chunk=${r.chunk_id}`}
@@ -114,7 +116,9 @@ export default function ChatPage() {
                           ? `｜第 ${r.paragraph_index} 段`
                           : ""}
                       </Link>
-                      <p className="mt-1 text-xs text-muted-foreground">{r.quote}</p>
+                      <p className="mt-1 whitespace-pre-wrap break-words text-xs leading-5 text-muted-foreground">
+                        {r.quote}
+                      </p>
                     </li>
                   ))}
                 </ul>
@@ -124,12 +128,12 @@ export default function ChatPage() {
 
           {result.tool_calls.length > 0 && (
             <Card>
-              <CardContent className="pt-6 text-sm">
+              <CardContent className="flex flex-wrap gap-2 pt-6 text-sm">
                 <span className="text-muted-foreground">调用工具：</span>
                 {result.tool_calls.map((t, i) => (
                   <span
                     key={i}
-                    className="mr-2 rounded bg-secondary px-2 py-0.5 text-secondary-foreground"
+                    className="break-words rounded bg-secondary px-2 py-0.5 text-secondary-foreground"
                   >
                     {t.name}
                   </span>

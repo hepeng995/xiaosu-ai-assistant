@@ -83,7 +83,7 @@ export default function DashboardPage() {
         : "destructive";
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <PageHeader
         eyebrow="Overview · 01"
         title="概览"
@@ -97,10 +97,10 @@ export default function DashboardPage() {
       )}
 
       {/* 统计卡网格 */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:gap-4">
         {loading ? (
           Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-[104px]" />
+            <Skeleton key={i} className="h-24 sm:h-[104px]" />
           ))
         ) : (
           <>
@@ -140,7 +140,7 @@ export default function DashboardPage() {
       <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
         {/* 最近对话 */}
         <Card>
-          <CardHeader className="flex-row items-center justify-between space-y-0">
+          <CardHeader className="flex-row flex-wrap items-center justify-between gap-2 space-y-0 p-4 sm:p-6">
             <CardTitle className="text-base">最近对话</CardTitle>
             <Link
               href="/admin/logs"
@@ -149,7 +149,7 @@ export default function DashboardPage() {
               查看全部 →
             </Link>
           </CardHeader>
-          <CardContent className="space-y-1">
+          <CardContent className="space-y-1 p-4 pt-0 sm:p-6 sm:pt-0">
             {loading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <Skeleton key={i} className="h-10" />
@@ -162,19 +162,26 @@ export default function DashboardPage() {
               recent.map((m) => (
                 <div
                   key={m.id}
-                  className="group flex items-center gap-3 rounded-lg border border-transparent px-2 py-2 text-sm transition-colors hover:border-border/60 hover:bg-primary/[0.03]"
+                  className="group flex flex-col gap-2 rounded-lg border border-transparent px-2 py-2 text-sm transition-colors hover:border-border/60 hover:bg-primary/[0.03] sm:flex-row sm:items-center sm:gap-3"
                 >
-                  <span className="w-16 shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground">
-                    {shortTime(m.created_at)}
-                  </span>
-                  <Badge variant="outline" className="shrink-0 normal-case">
-                    {m.platform}
-                  </Badge>
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground group-hover:text-foreground">
+                  <div className="flex flex-wrap items-center gap-2 sm:contents">
+                    <span className="shrink-0 font-mono text-[11px] tabular-nums text-muted-foreground sm:w-16">
+                      {shortTime(m.created_at)}
+                    </span>
+                    <Badge variant="outline" className="shrink-0 normal-case">
+                      {m.platform}
+                    </Badge>
+                    {!m.success && (
+                      <Badge variant="destructive" className="shrink-0 sm:hidden">
+                        失败
+                      </Badge>
+                    )}
+                  </div>
+                  <span className="min-w-0 break-words text-muted-foreground group-hover:text-foreground sm:flex-1 sm:truncate">
                     {m.content}
                   </span>
                   {!m.success && (
-                    <Badge variant="destructive" className="shrink-0">
+                    <Badge variant="destructive" className="hidden shrink-0 sm:inline-flex">
                       失败
                     </Badge>
                   )}
@@ -190,7 +197,7 @@ export default function DashboardPage() {
             const Icon = q.icon;
             return (
               <Link key={q.href} href={q.href} className="glow-ring group block">
-                <Card className="flex items-center gap-4 p-4">
+                <Card className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
                   <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
                     <Icon className="h-5 w-5" strokeWidth={1.7} />
                   </span>

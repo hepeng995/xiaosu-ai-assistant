@@ -44,7 +44,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="grid min-h-screen lg:grid-cols-2">
+    <div className="grid min-h-dvh lg:grid-cols-2">
       {/* ── 左侧：品牌叙事面板（仅 lg+ 显示） ── */}
       <div className="corner-frame relative hidden flex-col justify-between overflow-hidden border-r border-border/60 p-12 lg:flex">
         {/* 翡翠渐变叠加层 + 呼吸光晕 */}
@@ -107,7 +107,7 @@ export default function LoginPage() {
       </div>
 
       {/* ── 右侧：登录表单 ── */}
-      <div className="flex items-center justify-center p-6">
+      <div className="flex items-center justify-center p-4 sm:p-6">
         <div className="w-full max-w-sm animate-fade-in-up">
           {/* 移动端品牌徽标 */}
           <div className="mb-8 flex items-center justify-center gap-3 lg:hidden">
