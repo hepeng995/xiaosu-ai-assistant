@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { MessageItem, ReferenceItem } from "@/lib/api";
 
 /**
@@ -49,9 +50,10 @@ export function MessageDetail({ message }: { message: MessageItem }) {
         <div className="space-y-1">
           <p className="text-xs text-muted-foreground">引用来源（{refs.length}）</p>
           {refs.map((r, i) => (
-            <div
-              key={i}
-              className="rounded-md border border-border/40 bg-background/60 p-2"
+            <Link
+              key={r.chunk_id || i}
+              href={`/admin/documents/${r.document_id}?chunk=${r.chunk_id}`}
+              className="block rounded-md border border-border/40 bg-background/60 p-2 transition-colors hover:border-primary/40 hover:bg-primary/5"
             >
               <p className="break-words text-xs text-primary">
                 {r.filename}
@@ -62,7 +64,7 @@ export function MessageDetail({ message }: { message: MessageItem }) {
                   {r.quote}
                 </p>
               )}
-            </div>
+            </Link>
           ))}
         </div>
       )}
