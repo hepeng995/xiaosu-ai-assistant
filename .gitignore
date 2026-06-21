@@ -49,6 +49,11 @@ storage/uploads/*
 storage/parsed/*
 !storage/parsed/.gitkeep
 
+# ---------- 本地工具缓存与临时截图（不入库）----------
+.playwright-mcp/
+/admin-overview-light.png
+/ov-data.png
+
 # ---------- 编辑器与系统 ----------
 .gstack/
 _deploy_crypto.py
