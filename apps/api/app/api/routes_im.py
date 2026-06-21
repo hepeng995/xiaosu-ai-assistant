@@ -19,7 +19,7 @@ from app.core.errors import AppException, ErrorCode
 from app.core.redis_client import acquire_idempotent
 from app.db.session import AsyncSessionLocal
 from app.im import feishu_stream
-from app.im.base import IMAttachment, IMMessage
+from app.im.base import IMAttachment, IMMention, IMMessage
 from app.im.dingtalk import (
     decrypt_event,
     encrypt_event,
@@ -38,7 +38,7 @@ from app.im.feishu import (
     verify_signature,
     verify_token,
 )
-from app.im.formatter import format_feishu_post, format_reply
+from app.im.formatter import format_feishu_card_markdown, format_feishu_post, format_reply
 from app.parsers import SUPPORTED_EXTENSIONS
 from app.services import chat_service, document_service
 from app.services.indexing_service import index_document
@@ -258,11 +258,32 @@ async def feishu_callback(request: Request) -> dict:
     return {"success": True, "accepted": True}
 
 
-async def _handle_feishu_message(im_msg: IMMessage) -> None:
-    """后台处理飞书消息：流式卡片（开启且创建成功）或一次性 post（降级）。
+async def _send_feishu_card_or_fallback(
+    receive_id: str,
+    answer: str,
+    references: list[dict] | None = None,
+    tool_calls: list[dict] | None = None,
+    mentions: list[IMMention] | None = None,
+    bind: Any = None,
+) -> None:
+    """飞书回复统一出口：先试静态卡片，失败降级 post 富文本（红线：IM 端必有回复）。"""
+    card_md = format_feishu_card_markdown(answer, references, tool_calls, mentions)
+    if await feishu_stream.send_static_card(receive_id, card_md):
+        if bind:
+            bind.info("飞书卡片回复成功")
+        return
+    if bind:
+        bind.warning("飞书静态卡片发送失败，降级 post 富文本")
+    post_content = format_feishu_post(answer, references, tool_calls, mentions=mentions)
+    await reply_message(receive_id, post_content, msg_type="post")
 
-    流式路径复用 chat_service.stream_chat，逐 token 攒批更新卡片（打字机效果）；
-    stream_chat 内部已落库与异常兜底。任一阶段失败自动降级为一次性 post，保证 IM 必有回复。
+
+async def _handle_feishu_message(im_msg: IMMessage) -> None:
+    """后台处理飞书消息：所有 chat 回复统一走 stream_chat（真流式生成）。
+
+    流式卡片创建成功 → 逐 token 攒批更新卡片（打字机效果）；
+    流式卡片创建失败/关闭 → stream_chat 累积完整文本后一次性 post（降级兜底）。
+    两条路径都消费 stream_chat（流式生成），仅展示形态不同；文件消息走静态卡片（即时）。
     """
     bind = logger.bind(
         module="im",
@@ -284,29 +305,8 @@ async def _handle_feishu_message(im_msg: IMMessage) -> None:
         await _feishu_stream_reply(im_msg, card_id, bind)
         return
 
-    # 降级：一次性 post 富文本回复（含引用与工具调用）
-    try:
-        async with AsyncSessionLocal() as session:
-            result = await chat_service.chat(
-                platform="feishu",
-                conversation_id=im_msg.conversation_id,
-                user_id=im_msg.user_id,
-                message=im_msg.text,
-                session=session,
-                user_name=im_msg.user_name,
-            )
-    except Exception as exc:  # 后台任务异常兜底，IM 端必有回复
-        bind.exception("飞书后台 chat 异常: {}", exc)
-        result = _CHAT_FALLBACK
-
-    post_content = format_feishu_post(
-        result.get("answer", ""),
-        result.get("references", []),
-        result.get("tool_calls", []),
-        mentions=im_msg.mentions,
-    )
-    await reply_message(im_msg.conversation_id, post_content, msg_type="post")
-    bind.info("飞书后台回复完成（一次性）")
+    # 降级：流式卡片不可用 → stream_chat 累积后一次性 post（IM 端必有回复）
+    await _feishu_post_reply(im_msg, bind)
 
 
 async def _feishu_stream_reply(im_msg: IMMessage, card_id: str, bind: Any) -> None:
@@ -369,12 +369,50 @@ async def _feishu_stream_reply(im_msg: IMMessage, card_id: str, bind: Any) -> No
         )
         final_text = f"{accumulated}\n\n---\n参考来源：\n{ref_lines}".strip()
     if im_msg.mentions:
-        names = " ".join(f"@{m.name or m.open_id}" for m in im_msg.mentions)
-        final_text = f"{final_text}\n\n{names}".strip()
+        at_line = " ".join(
+            f'<at user_id="{m.open_id or m.user_id}">{m.name or "成员"}</at>'
+            for m in im_msg.mentions
+            if (m.open_id or m.user_id)
+        )
+        if at_line:
+            final_text = f"{final_text}\n\n{at_line}".strip()
     if final_text and await feishu_stream.update_card_text(card_id, final_text, sequence):
         sequence += 1
     await feishu_stream.close_streaming(card_id, sequence)  # best-effort 关闭
     bind.info("飞书流式回复完成")
+
+
+async def _feishu_post_reply(im_msg: IMMessage, bind: Any) -> None:
+    """流式卡片不可用时的降级：stream_chat 累积完整文本后一次性 post。
+
+    与 :func:`_feishu_stream_reply` 同源消费 ``stream_chat``（真流式 LLM token），仅展示形态不同：
+    无流式卡片可更新时，累积全部 token 后用 post 富文本一次性回复（含引用与 @ 提及）。
+    stream_chat 内部已落库与异常兜底，此处保证 IM 端必有回复。
+    """
+    accumulated = ""
+    references: list[dict] = []
+    async with AsyncSessionLocal() as session:
+        try:
+            async for event in chat_service.stream_chat(
+                platform="feishu",
+                conversation_id=im_msg.conversation_id,
+                user_id=im_msg.user_id,
+                message=im_msg.text,
+                session=session,
+                user_name=im_msg.user_name,
+            ):
+                ev = event.get("event")
+                if ev == "token":
+                    accumulated += event.get("data", {}).get("content", "")
+                elif ev == "references":
+                    references = event.get("data", {}).get("references", []) or []
+        except Exception as exc:  # stream_chat 内部已兜底；此处记日志，尽量保留已累积内容
+            bind.exception("飞书降级 stream_chat 异常: {}", exc)
+    if not accumulated:
+        accumulated = "小苏遇到了一点问题，请稍后再试。"
+    post_content = format_feishu_post(accumulated, references, [], mentions=im_msg.mentions)
+    await reply_message(im_msg.conversation_id, post_content, msg_type="post")
+    bind.info("飞书降级 post 回复完成")
 
 
 async def download_feishu_file(message_id: str, attachment: IMAttachment) -> bytes:
@@ -389,19 +427,20 @@ async def _handle_feishu_file_message(im_msg: IMMessage, bind: Any) -> bool:
     attachment = im_msg.attachments[0]
     ext = f".{attachment.file_type.lower().lstrip('.')}"
     if ext not in SUPPORTED_EXTENSIONS:
-        post = format_feishu_post(
+        await _send_feishu_card_or_fallback(
+            im_msg.conversation_id,
             f"这个文件暂时不能加入知识库。仅支持：{', '.join(sorted(SUPPORTED_EXTENSIONS))}。",
-            [],
-            [],
             mentions=im_msg.mentions,
+            bind=bind,
         )
-        await reply_message(im_msg.conversation_id, post, msg_type="post")
         return True
     if attachment.file_size > settings.UPLOAD_MAX_SIZE_BYTES:
-        post = format_feishu_post(
-            "文件超过大小限制，暂时不能加入知识库。", [], [], mentions=im_msg.mentions
+        await _send_feishu_card_or_fallback(
+            im_msg.conversation_id,
+            "文件超过大小限制，暂时不能加入知识库。",
+            mentions=im_msg.mentions,
+            bind=bind,
         )
-        await reply_message(im_msg.conversation_id, post, msg_type="post")
         return True
     try:
         content = await download_feishu_file(im_msg.message_id, attachment)
@@ -411,14 +450,20 @@ async def _handle_feishu_file_message(im_msg: IMMessage, bind: Any) -> bool:
             await index_document(doc.id)
             await session.refresh(doc)
         answer = f"文件「{attachment.filename}」已加入知识库，可以继续围绕它提问。"
-        post = format_feishu_post(answer, [], [], mentions=im_msg.mentions)
-        await reply_message(im_msg.conversation_id, post, msg_type="post")
+        await _send_feishu_card_or_fallback(
+            im_msg.conversation_id,
+            answer,
+            mentions=im_msg.mentions,
+            bind=bind,
+        )
         bind.info("飞书文件已加入知识库 filename={}", attachment.filename)
         return True
     except Exception as exc:
         bind.exception("飞书文件处理失败: {}", exc)
-        post = format_feishu_post(
-            "文件处理失败，请稍后再试或联系管理员。", [], [], mentions=im_msg.mentions
+        await _send_feishu_card_or_fallback(
+            im_msg.conversation_id,
+            "文件处理失败，请稍后再试或联系管理员。",
+            mentions=im_msg.mentions,
+            bind=bind,
         )
-        await reply_message(im_msg.conversation_id, post, msg_type="post")
         return True

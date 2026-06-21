@@ -79,30 +79,32 @@ async def _request(
         return None
 
 
-async def create_streaming_card(receive_id: str) -> str | None:
-    """创建流式卡片并发送到会话（chat_id），返回 card_id；任一步失败返回 None（调用方降级）。"""
-    if not receive_id:
-        return None
+async def _create_card_and_send(receive_id: str, card_json_str: str) -> str | None:
+    """创建 CardKit 卡片实体并发送到会话，返回 card_id；任一步失败返回 None。
+
+    流式（``streaming_mode=True``）与非流式（``streaming_mode=False``）卡片共用此两步逻辑，
+    仅 ``card_json_str`` 不同。调用方据此决定是否降级为 post 回复。
+    """
     try:
         token = await get_tenant_access_token()
     except RuntimeError:
         return None
 
-    # 1) 创建开启流式的卡片实体
+    # 1) 创建卡片实体
     create_url = f"{settings.FEISHU_BASE_URL}/cardkit/v1/cards"
     try:
         resp = await _post_json_with_retry(
             create_url,
-            json={"type": "card_json", "data": _STREAMING_CARD_JSON},
+            json={"type": "card_json", "data": card_json_str},
             headers=_auth_headers(token),
         )
         data = resp.json()
     except Exception as exc:
-        logger.bind(module="im", event="feishu_stream").warning("创建流式卡片异常: {}", exc)
+        logger.bind(module="im", event="feishu_stream").warning("创建卡片异常: {}", exc)
         return None
     if resp.status_code != 200 or data.get("code", 0) != 0:
         logger.bind(module="im", event="feishu_stream").warning(
-            "创建流式卡片失败 status={} code={} msg={}",
+            "创建卡片失败 status={} code={} msg={}",
             resp.status_code,
             data.get("code"),
             data.get("msg"),
@@ -126,16 +128,50 @@ async def create_streaming_card(receive_id: str) -> str | None:
         mdata = mresp.json()
         if mresp.status_code != 200 or mdata.get("code", 0) != 0:
             logger.bind(module="im", event="feishu_stream").warning(
-                "发送流式卡片失败 status={} code={} msg={}",
+                "发送卡片失败 status={} code={} msg={}",
                 mresp.status_code,
                 mdata.get("code"),
                 mdata.get("msg"),
             )
             return None
     except Exception as exc:
-        logger.bind(module="im", event="feishu_stream").warning("发送流式卡片异常: {}", exc)
+        logger.bind(module="im", event="feishu_stream").warning("发送卡片异常: {}", exc)
         return None
     return card_id
+
+
+async def create_streaming_card(receive_id: str) -> str | None:
+    """创建流式卡片并发送到会话（chat_id），返回 card_id；任一步失败返回 None（调用方降级）。"""
+    if not receive_id:
+        return None
+    return await _create_card_and_send(receive_id, _STREAMING_CARD_JSON)
+
+
+def _build_static_card_json(content: str) -> str:
+    """构建非流式 CardKit JSON（schema 2.0，streaming_mode=False，content 预填完整文本）。"""
+    return json.dumps(
+        {
+            "schema": "2.0",
+            "config": {"streaming_mode": False},
+            "body": {
+                "elements": [
+                    {"tag": "markdown", "content": content, "element_id": _ELEMENT_ID}
+                ]
+            },
+        },
+        ensure_ascii=False,
+    )
+
+
+async def send_static_card(receive_id: str, content: str) -> bool:
+    """发送一次性非流式卡片（完整内容直接呈现，无打字机）；失败返回 False（调用方降级 post）。
+
+    与流式路径独立：复用 :func:`_create_card_and_send` 的两步创建+发送，仅卡片 JSON 不同。
+    """
+    if not receive_id or not content:
+        return False
+    card_id = await _create_card_and_send(receive_id, _build_static_card_json(content))
+    return card_id is not None
 
 
 async def update_card_text(card_id: str, content: str, sequence: int) -> bool:

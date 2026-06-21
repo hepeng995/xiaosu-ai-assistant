@@ -722,3 +722,172 @@ async def test_dingtalk_handle_message_placeholder_then_answer(
     assert replies[0] == (settings.DINGTALK_PLACEHOLDER_TEXT, None)
     assert replies[1][0] == "最终答案"
     assert chat_called[0] is True
+
+
+@pytest.mark.asyncio
+async def test_send_feishu_card_or_fallback_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """静态卡片发送成功时不走 post 兜底。"""
+    from loguru import logger
+
+    from app.api import routes_im
+
+    card_called = [False]
+    post_called = [False]
+
+    async def fake_card(_rid: str, _content: str) -> bool:
+        card_called[0] = True
+        return True
+
+    async def fake_reply(*_a: object, **_kw: object) -> bool:
+        post_called[0] = True
+        return True
+
+    monkeypatch.setattr(routes_im.feishu_stream, "send_static_card", fake_card)
+    monkeypatch.setattr(routes_im, "reply_message", fake_reply)
+
+    await routes_im._send_feishu_card_or_fallback("oc_x", "hi", [], [], None, logger.bind())
+    assert card_called[0] is True
+    assert post_called[0] is False
+
+
+@pytest.mark.asyncio
+async def test_send_feishu_card_or_fallback_post_on_fail(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """静态卡片失败时降级 post 富文本（IM 端必有回复）。"""
+    from loguru import logger
+
+    from app.api import routes_im
+
+    post_calls: list[tuple] = []
+
+    async def fake_card(_rid: str, _content: str) -> bool:
+        return False
+
+    async def fake_reply(receive_id: str, content: dict, msg_type: str = "text") -> bool:
+        post_calls.append((receive_id, content, msg_type))
+        return True
+
+    monkeypatch.setattr(routes_im.feishu_stream, "send_static_card", fake_card)
+    monkeypatch.setattr(routes_im, "reply_message", fake_reply)
+
+    await routes_im._send_feishu_card_or_fallback("oc_x", "hi", [], [], None, logger.bind())
+    assert len(post_calls) == 1
+    assert post_calls[0][0] == "oc_x"
+    assert post_calls[0][2] == "post"
+    assert "zh_cn" in post_calls[0][1]
+
+
+def test_format_feishu_card_markdown_at_syntax() -> None:
+    """@ 提及用飞书卡片 <at user_id> 语法（触发真通知，补齐流式路径丢失的能力）。"""
+    from app.im.base import IMMention
+    from app.im.formatter import format_feishu_card_markdown
+
+    md = format_feishu_card_markdown("hi", [], [], [IMMention(open_id="ou_abc", name="张三")])
+    assert '<at user_id="ou_abc">张三</at>' in md
+
+
+def test_format_feishu_card_markdown_skips_empty_mention() -> None:
+    """空 open_id/user_id 的 mention 被跳过，不生成无效 <at>。"""
+    from app.im.base import IMMention
+    from app.im.formatter import format_feishu_card_markdown
+
+    md = format_feishu_card_markdown(
+        "hi", [], [], [IMMention(open_id="", user_id="", name="x")]
+    )
+    assert "<at" not in md
+
+
+def test_format_feishu_card_markdown_reference_url() -> None:
+    """参考来源有 url 用 [text](url)，缺字段降级纯文本。"""
+    from app.im.formatter import format_feishu_card_markdown
+
+    md_with_url = format_feishu_card_markdown(
+        "hi",
+        [{"filename": "员工手册.md", "document_id": "d1", "chunk_id": "c1", "paragraph_index": 1}],
+        [], [],
+    )
+    assert "[1. 员工手册.md" in md_with_url
+
+    md_no_url = format_feishu_card_markdown(
+        "hi", [{"filename": "无链接.md", "paragraph_index": 1}], [], []
+    )
+    assert "[" not in md_no_url
+    assert "无链接.md" in md_no_url
+
+
+def test_build_static_card_json_not_streaming() -> None:
+    """静态卡片 JSON 的 streaming_mode=False，content 预填，复用 md_1 元素 id。"""
+    import json
+
+    from app.im.feishu_stream import _build_static_card_json
+
+    card = json.loads(_build_static_card_json("hello"))
+    assert card["config"]["streaming_mode"] is False
+    assert card["body"]["elements"][0]["content"] == "hello"
+    assert card["body"]["elements"][0]["element_id"] == "md_1"
+
+
+@pytest.mark.asyncio
+async def test_send_static_card_empty_receive_id_short_circuits() -> None:
+    """空 receive_id 或空 content 短路返回 False（不调底层 API）。"""
+    from app.im.feishu_stream import send_static_card
+
+    assert await send_static_card("", "hi") is False
+    assert await send_static_card("oc_x", "") is False
+
+
+@pytest.mark.asyncio
+async def test_feishu_post_reply_streams_tokens_and_posts_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """_feishu_post_reply 应消费 stream_chat 累积 token，最后 post 一次性回复。"""
+    from loguru import logger
+
+    from app.api import routes_im
+    from app.im.base import IMMessage
+
+    posts: list[tuple] = []
+
+    async def fake_stream_chat(*_args: object, **_kwargs: object):
+        yield {"event": "token", "data": {"content": "你"}}
+        yield {"event": "token", "data": {"content": "好"}}
+        yield {
+            "event": "references",
+            "data": {"references": [{"filename": "员工手册.md"}]},
+        }
+
+    async def fake_reply(receive_id: str, content: dict, msg_type: str = "text") -> bool:
+        posts.append((receive_id, content, msg_type))
+        return True
+
+    class FakeSession:
+        async def __aenter__(self) -> "FakeSession":
+            return self
+
+        async def __aexit__(self, *_a: object) -> None:
+            return None
+
+    monkeypatch.setattr(routes_im.chat_service, "stream_chat", fake_stream_chat)
+    monkeypatch.setattr(routes_im, "reply_message", fake_reply)
+    monkeypatch.setattr(routes_im, "AsyncSessionLocal", lambda: FakeSession())
+
+    im_msg = IMMessage(
+        platform="feishu",
+        message_id="m1",
+        conversation_id="c1",
+        conversation_type="private",
+        user_id="u1",
+        user_name=None,
+        text="你好",
+        raw={},
+    )
+    await routes_im._feishu_post_reply(im_msg, logger.bind())
+
+    # 只 post 一次，msg_type=post
+    assert len(posts) == 1
+    assert posts[0][0] == "c1"
+    assert posts[0][2] == "post"
+    # post 富文本首行含累积的完整答案「你好」
+    first_row = posts[0][1]["zh_cn"]["content"][0]
+    assert any("你好" in node.get("text", "") for node in first_row if isinstance(node, dict))

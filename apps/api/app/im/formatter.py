@@ -90,3 +90,45 @@ def format_feishu_post(
         content.append([{"tag": "text", "text": f"（本次调用工具：{names}）"}])
 
     return {"zh_cn": {"content": content}}
+
+
+def format_feishu_card_markdown(
+    answer: str,
+    references: list[dict] | None = None,
+    tool_calls: list[dict] | None = None,
+    mentions: list[IMMention] | None = None,
+) -> str:
+    """生成飞书卡片 markdown 文本（供 ``send_static_card`` 一次性投递）。
+
+    与 :func:`format_feishu_post` 字段一一对应，确保卡片化后功能不丢失：
+    - 正文原样；
+    - 参考来源用 ``---`` 分隔 + ``[text](url)``，无 url 降级纯文本（复用 ``_reference_url``）；
+    - @ 提及用飞书卡片 markdown 专用语法 ``<at user_id="ou_xxx">name</at>``，触发真通知
+      （补齐流式路径只拼 ``@name`` 纯文本而丢失的通知能力）。
+    """
+    parts: list[str] = []
+    if answer:
+        parts.append(answer)
+
+    if mentions:
+        at_line = " ".join(
+            f'<at user_id="{m.open_id or m.user_id}">{m.name or "成员"}</at>'
+            for m in mentions
+            if (m.open_id or m.user_id)
+        )
+        if at_line:
+            parts.append(at_line)
+
+    if references:
+        parts.append("---")
+        parts.append("**参考来源：**")
+        for i, r in enumerate(references, 1):
+            label = f"{i}. {r.get('filename', '')}｜{_reference_location(r)}"
+            url = _reference_url(r)
+            parts.append(f"[{label}]({url})" if url else label)
+
+    if tool_calls:
+        names = "、".join(t.get("name", "") for t in tool_calls)
+        parts.append(f"（本次调用工具：{names}）")
+
+    return "\n".join(parts).strip()
