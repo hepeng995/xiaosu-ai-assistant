@@ -23,6 +23,19 @@ class _ChunkData:
     chunk_index: int
 
 
+def _embed_text(chunk: _ChunkData) -> str:
+    """构建 embedding 文本：纳入 heading_path 让「指引性 FAQ」更易被语义命中。
+
+    部分 chunk（尤其 FAQ 类）的 content 是简短答案，而 heading_path 才是与用户
+    query 语义最接近的部分（如 heading="公司未来销售目标是多少？" 对应 query
+    "2030 年销售目标是多少？"）。仅用 content embedding 会让这类 chunk 检索
+    不到；纳入 heading 后相似度提升，拒答/回答话术更贴合。
+    """
+    if chunk.heading_path:
+        return f"{chunk.heading_path}\n{chunk.content}"
+    return chunk.content
+
+
 def chunk_blocks(blocks: list[ParsedBlock], chunk_size: int, overlap: int) -> list[_ChunkData]:
     """将解析块按 chunk_size/overlap 切分（保留定位信息）。"""
     chunks: list[_ChunkData] = []
@@ -75,7 +88,7 @@ async def index_document(document_id: uuid.UUID) -> None:
             blocks = await parser.parse(file_path)
             chunks = chunk_blocks(blocks, settings.RAG_CHUNK_SIZE, settings.RAG_CHUNK_OVERLAP)
 
-            embeddings = await embedding_service.embed_texts([c.content for c in chunks])
+            embeddings = await embedding_service.embed_texts([_embed_text(c) for c in chunks])
 
             for chunk, emb in zip(chunks, embeddings, strict=True):
                 session.add(
