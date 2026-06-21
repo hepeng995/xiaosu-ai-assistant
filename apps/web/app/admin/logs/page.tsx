@@ -20,6 +20,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cost, errorMessage, latency, shortTime } from "@/lib/format";
+import { ErrorBanner } from "@/components/admin/error-banner";
+import { MessageDetail } from "@/components/admin/message-detail";
 
 const STATUS_FILTERS = [
   { value: "all", label: "全部" },
@@ -50,6 +52,7 @@ export default function LogsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [platformFilter, setPlatformFilter] = useState("all");
   const [refreshing, setRefreshing] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -121,7 +124,15 @@ export default function LogsPage() {
         />
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <ErrorBanner message={error} />}
+
+      {!loading && filtered.length > 0 && (
+        <p className="font-mono text-xs text-muted-foreground">
+          共 {filtered.length} 条消息 ·{" "}
+          {new Set(filtered.map((m) => m.conversation_id)).size} 个会话
+          <span className="ml-2">（点击行展开工具调用详情）</span>
+        </p>
+      )}
 
       <div className="space-y-3 md:hidden">
         {loading ? (
@@ -220,10 +231,15 @@ export default function LogsPage() {
                   </TableRow>
                 ))
               ) : (
-                filtered.map((m) => {
+                filtered.flatMap((m) => {
                   const tools = toolNames(m);
-                  return (
-                    <TableRow key={m.id} className="transition-colors hover:bg-muted/50">
+                  const expanded = expandedId === m.id;
+                  return [
+                    <TableRow
+                      key={m.id}
+                      className="cursor-pointer transition-colors hover:bg-muted/50"
+                      onClick={() => setExpandedId(expanded ? null : m.id)}
+                    >
                       <TableCell className="whitespace-nowrap text-muted-foreground">
                         {shortTime(m.created_at)}
                       </TableCell>
@@ -246,8 +262,15 @@ export default function LogsPage() {
                           {m.success ? "成功" : "失败"}
                         </Badge>
                       </TableCell>
-                    </TableRow>
-                  );
+                    </TableRow>,
+                    expanded ? (
+                      <TableRow key={`${m.id}-detail`}>
+                        <TableCell colSpan={9} className="bg-muted/20 p-0">
+                          <MessageDetail message={m} />
+                        </TableCell>
+                      </TableRow>
+                    ) : null,
+                  ];
                 })
               )}
               {!loading && filtered.length === 0 && (

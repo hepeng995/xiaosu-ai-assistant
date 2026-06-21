@@ -51,6 +51,7 @@ export default function DocumentsPage() {
   const [docs, setDocs] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [confirmTarget, setConfirmTarget] = useState<{
@@ -87,24 +88,41 @@ export default function DocumentsPage() {
     return () => clearInterval(timer);
   }, [hasPending, load]);
 
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const tid = toast.loading(`上传中：${file.name}…`);
-    try {
-      const doc = await api.documents.upload(file, true);
-      if (doc.status === "indexed") {
-        toast.success(`已索引：${file.name}，可在 IM 中提问`, { id: tid });
-      } else if (doc.status === "failed") {
-        toast.error(`索引失败：${doc.error_message ?? file.name}`, { id: tid });
-      } else {
-        toast.success(`已上传：${file.name}（${doc.status}）`, { id: tid });
-      }
-      if (fileRef.current) fileRef.current.value = "";
-      load();
-    } catch (e) {
-      toast.error(errorMessage(e), { id: tid });
+  const handleUploadFiles = async (files: File[]) => {
+    if (files.length === 0) return;
+    const valid = files.filter((f) => /\.(md|markdown|pdf|docx|txt)$/i.test(f.name));
+    if (valid.length < files.length) {
+      toast.error(
+        `${files.length - valid.length} 个文件类型不支持（仅 md / pdf / docx / txt）`,
+      );
     }
+    for (const file of valid) {
+      const tid = toast.loading(`上传中：${file.name}…`);
+      try {
+        const doc = await api.documents.upload(file, true);
+        if (doc.status === "indexed") {
+          toast.success(`已索引：${file.name}，可在 IM 中提问`, { id: tid });
+        } else if (doc.status === "failed") {
+          toast.error(`索引失败：${doc.error_message ?? file.name}`, { id: tid });
+        } else {
+          toast.success(`已上传：${file.name}（${doc.status}）`, { id: tid });
+        }
+      } catch (e) {
+        toast.error(errorMessage(e), { id: tid });
+      }
+    }
+    if (fileRef.current) fileRef.current.value = "";
+    load();
+  };
+
+  const handleUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) handleUploadFiles(Array.from(e.target.files));
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleUploadFiles(Array.from(e.dataTransfer.files));
   };
 
   const doDelete = async () => {
@@ -144,7 +162,17 @@ export default function DocumentsPage() {
   });
 
   return (
-    <div className="space-y-4">
+    <div
+      className={`space-y-4 rounded-lg transition-shadow ${
+        dragOver ? "ring-2 ring-primary ring-offset-2" : ""
+      }`}
+      onDrop={handleDrop}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+    >
       <PageHeader
         eyebrow="Knowledge · 02"
         title="文档管理"
@@ -158,6 +186,7 @@ export default function DocumentsPage() {
             ref={fileRef}
             type="file"
             accept=".md,.markdown,.pdf,.docx,.txt"
+            multiple
             className="hidden"
             onChange={handleUpload}
           />
