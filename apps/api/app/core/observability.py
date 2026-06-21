@@ -54,8 +54,34 @@ def _reset_for_test() -> None:
 
 
 @contextmanager
+def trace_span(name: str, *, metadata: dict[str, Any] | None = None) -> Iterator[dict[str, Any]]:
+    """记录一次通用链路 span；未配置 Langfuse 时为 noop。
+
+    调用方可在 yield 的 state 中回填 ``output``/``metadata``，SDK 异常会被忽略。
+    """
+    state: dict[str, Any] = {}
+    if metadata:
+        state["metadata"] = metadata
+    client = get_client()
+    span: Any = None
+    if client is not None:
+        try:
+            trace = client.trace(id=trace_id_var.get())
+            span = trace.span(name=name, metadata=metadata)
+        except Exception as exc:
+            logger.debug("langfuse span 创建失败（已忽略）: {}", exc)
+    yield state
+    if span is not None:
+        try:
+            end_kwargs = {k: v for k, v in state.items() if k in ("output", "metadata")}
+            span.end(**end_kwargs)
+        except Exception as exc:
+            logger.debug("langfuse span 结束失败（已忽略）: {}", exc)
+
+
+@contextmanager
 def llm_span(name: str, *, model: str | None = None) -> Iterator[dict[str, Any]]:
-    """记录一次 LLM/Embedding 调用 span；yield state dict 供调用方回填 output/usage。
+    """记录一次 LLM/Embedding generation；yield state dict 供调用方回填 output/usage。
 
     用法::
 

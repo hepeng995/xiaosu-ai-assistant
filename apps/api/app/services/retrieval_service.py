@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.observability import trace_span
 from app.llm.embedding import embedding_service
 
 # 真实模式：余弦相似度检索
@@ -60,9 +61,20 @@ async def search_knowledge(
 ) -> list[dict]:
     """检索知识库：真实走 pgvector，mock 走字符重叠。"""
     top_k = top_k or settings.RAG_TOP_K
-    if embedding_service.use_mock:
-        return await _mock_search(query, session, top_k)
-    return await _vector_search(query, session, top_k)
+    with trace_span(
+        "retrieval_search",
+        metadata={"top_k": top_k, "mode": "mock" if embedding_service.use_mock else "vector"},
+    ) as span:
+        if embedding_service.use_mock:
+            items = await _mock_search(query, session, top_k)
+        else:
+            items = await _vector_search(query, session, top_k)
+        span["metadata"] = {
+            "top_k": top_k,
+            "result_count": len(items),
+            "mode": "mock" if embedding_service.use_mock else "vector",
+        }
+        return items
 
 
 async def _vector_search(query: str, session: AsyncSession, top_k: int) -> list[dict]:

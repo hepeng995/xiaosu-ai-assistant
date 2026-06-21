@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.errors import ErrorCode
+from app.core.observability import trace_span
 from app.db.session import AsyncSessionLocal
 from app.models import ToolCallLog
 from app.tools.attendance_tool import AttendanceTool
@@ -54,21 +55,25 @@ async def execute_tool(
     """执行工具并写入 tool_call_logs。"""
     tool_logger = logger.bind(module="tool", event="tool_call", tool_name=tool.name)
     start = time.time()
-    try:
-        result = await asyncio.wait_for(tool.run(arguments), timeout=settings.TOOL_TIMEOUT_SECONDS)
-    except TimeoutError:
-        result = ToolResult(
-            success=False,
-            error_code=ErrorCode.TOOL_TIMEOUT,
-            error_message="工具调用超时",
-        )
-    except Exception as exc:
-        result = ToolResult(
-            success=False,
-            error_code=ErrorCode.TOOL_ERROR,
-            error_message="工具调用失败",
-        )
-        tool_logger.warning("工具执行异常: {}", exc)
+    with trace_span("tool_call", metadata={"tool_name": tool.name}) as span:
+        try:
+            result = await asyncio.wait_for(
+                tool.run(arguments), timeout=settings.TOOL_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            result = ToolResult(
+                success=False,
+                error_code=ErrorCode.TOOL_TIMEOUT,
+                error_message="工具调用超时",
+            )
+        except Exception as exc:
+            result = ToolResult(
+                success=False,
+                error_code=ErrorCode.TOOL_ERROR,
+                error_message="工具调用失败",
+            )
+            tool_logger.warning("工具执行异常: {}", exc)
+        span["metadata"] = {"tool_name": tool.name, "success": result.success}
     if not result.success and result.error_code is None:
         result.error_code = ErrorCode.TOOL_ERROR
     latency_ms = int((time.time() - start) * 1000)

@@ -10,6 +10,7 @@ from app.agents.agent import prepare_response
 from app.agents.agent import run as agent_run
 from app.agents.prompts import REFUSAL_NO_RESULT, REFUSAL_PRIVACY, SENSITIVE_KEYWORDS
 from app.core.errors import ErrorCode
+from app.core.observability import trace_span
 from app.core.pricing import estimate_cost
 from app.llm.base import llm_service
 from app.services.conversation_service import (
@@ -55,6 +56,10 @@ async def chat(
 ) -> dict:
     """主流程：敏感过滤 → Agent（自主选工具/检索）→ 引用 + 拒答 + 兜底 → 落库。"""
     start = time.time()
+    chat_span = trace_span(
+        "chat", metadata={"platform": platform, "conversation_id": conversation_id}
+    )
+    span_state = chat_span.__enter__()
     conv = await get_or_create_conversation(platform, conversation_id, user_id, user_name, session)
 
     # 基础安全：敏感关键词拒答
@@ -69,6 +74,13 @@ async def chat(
             error_code=ErrorCode.UNKNOWN_ERROR,
             error_message="命中隐私/敏感问题拒答",
         )
+        span_state["metadata"] = {
+            "platform": platform,
+            "conversation_id": conversation_id,
+            "refused": True,
+            "reason": "privacy",
+        }
+        chat_span.__exit__(None, None, None)
         return {
             "answer": REFUSAL_PRIVACY,
             "references": [],
@@ -108,6 +120,14 @@ async def chat(
             error_message="模型服务暂时不可用",
             latency_ms=latency_ms,
         )
+        span_state["metadata"] = {
+            "platform": platform,
+            "conversation_id": conversation_id,
+            "success": False,
+            "error_code": agent_error_code,
+            "latency_ms": latency_ms,
+        }
+        chat_span.__exit__(None, None, None)
         return {
             "answer": _LLM_UNAVAILABLE,
             "references": [],
@@ -152,13 +172,23 @@ async def chat(
         latency_ms=latency_ms,
     )
 
-    return {
+    response = {
         "answer": answer,
         "references": result.references,
         "tool_calls": result.tool_calls,
         "usage": result.usage,
         "refused": refused,
     }
+    span_state["metadata"] = {
+        "platform": platform,
+        "conversation_id": conversation_id,
+        "refused": refused,
+        "references": len(result.references),
+        "tool_calls": len(result.tool_calls),
+        "latency_ms": latency_ms,
+    }
+    chat_span.__exit__(None, None, None)
+    return response
 
 
 async def stream_chat(
