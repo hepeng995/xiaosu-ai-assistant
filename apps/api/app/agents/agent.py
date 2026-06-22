@@ -69,6 +69,54 @@ def _compact_tool_payload(payload: Any, limit: int = 1500) -> str:
     return json.dumps(payload, ensure_ascii=False, default=str)[:limit]
 
 
+# RETRIEVAL_NUDGE 触发阈值：上一问与当前问的 2-gram Jaccard 相似度 ≥ 此值才认为「同问题复述」。
+# 经验值——完全相同/微调措辞的二次追问通常 > 0.6，新话题/元问题通常 < 0.2，0.5 为安全分界。
+_NUDGE_SIMILARITY_THRESHOLD = 0.5
+
+
+def _bigrams(text: str) -> set[str]:
+    """中文友好的 2-gram 集合（无需分词/向量，粗粒度相似度足够区分「新话题」与「复述」）。"""
+    text = (text or "").strip()
+    if len(text) < 2:
+        return {text} if text else set()
+    return {text[i : i + 2] for i in range(len(text) - 1)}
+
+
+def _text_similarity(a: str, b: str) -> float:
+    """2-gram Jaccard 相似度，∈ [0, 1]。"""
+    ga, gb = _bigrams(a), _bigrams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
+
+
+def _last_user_content(history: list[dict]) -> str:
+    """会话历史中最近一条 user 消息内容（无则空串）。"""
+    for msg in reversed(history):
+        if msg.get("role") == "user":
+            return msg.get("content", "") or ""
+    return ""
+
+
+def _should_nudge(history: list[dict], current_user: str) -> bool:
+    """第一轮无 tool_calls 时是否追加 :data:`RETRIEVAL_NUDGE`。
+
+    nudge 的初衷是破解「LLM 复述历史答案而不重新检索」导致 references 空 → 误判拒答。
+    但 LLM 对【新话题 / 元问题 / 能力问询 / 闲聊】合理选择不调工具时，nudge 反而会
+    强迫检索，且检索 query 易被历史污染、答非所问（见 trace_5507d6e9f1914324：
+    「你可以帮我做什么」被逼检索「年假天数规定」）。
+
+    触发策略：
+      - 无历史：保留 nudge（兼容首轮 LLM 偷懒不检索的知识库问题）；
+      - 有历史且上一问与当前问高度相似（疑似同问题二次问）：nudge；
+      - 有历史且上一问与当前问差异显著（新话题/元问题）：尊重 LLM 决策，不 nudge。
+    """
+    last_user = _last_user_content(history)
+    if not last_user:
+        return True
+    return _text_similarity(last_user, current_user) >= _NUDGE_SIMILARITY_THRESHOLD
+
+
 async def prepare_response(
     messages_history: list[dict],
     user_message: str,
@@ -95,8 +143,9 @@ async def prepare_response(
         total_usage = _merge_usage(total_usage, usage)
         if not tool_calls_raw:
             # 多轮陷阱兜底（仅第一轮）：LLM 若复述历史答案而不调工具，references 会为空，
-            # 进而被误判拒答（同问题第二次问必复现）。追加提醒让它重新检索获取本次引用。
-            if _round == 0:
+            # 进而被误判拒答（同问题第二次问必复现）。仅在疑似「同问题复述」时追加提醒
+            # 重新检索，避免误伤 LLM 对新话题/元问题合理选择不调工具的场景（见 _should_nudge）。
+            if _round == 0 and _should_nudge(messages_history, user_message):
                 conversation.append({"role": "assistant", "content": content})
                 conversation.append({"role": "user", "content": RETRIEVAL_NUDGE})
                 continue
@@ -181,7 +230,8 @@ async def prepare_response_stream(
         total_usage = _merge_usage(total_usage, usage)
         if not tool_calls_raw:
             # 多轮陷阱兜底（仅第一轮）：与 prepare_response 同源，避免复述历史导致 references 空。
-            if _round == 0:
+            # 仅在疑似「同问题复述」时触发，新话题/元问题放行（见 _should_nudge）。
+            if _round == 0 and _should_nudge(messages_history, user_message):
                 conversation.append({"role": "assistant", "content": content})
                 conversation.append({"role": "user", "content": RETRIEVAL_NUDGE})
                 continue
