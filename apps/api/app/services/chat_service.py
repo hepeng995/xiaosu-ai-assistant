@@ -438,13 +438,15 @@ async def stream_chat(
             else:
                 answer = "".join(answer_parts)
         else:
-            answer = "".join(answer_parts) or _sanitize_answer(prepared.draft_answer)
-
-    # 防御：若最终回答被 <tool_call> 泄漏过滤殆尽（或本就为空），补发兜底，避免飞书空卡片
-    if not answer:
-        answer = _BAD_OUTPUT_FALLBACK
-        async for event in _emit_text(answer):
-            yield event
+            answer = "".join(answer_parts)
+            if not answer:
+                # chat_stream 输出被 <tool_call> 泄漏过滤殆尽（或本就空）：
+                # 回退到工具选择阶段的 draft_answer 并【补发给飞书】，否则卡片显示空白
+                # （answer 变量虽非空，但飞书只收到了空的流式 token——见 trace_7fb9371c89334393）
+                answer = _sanitize_answer(prepared.draft_answer) or _BAD_OUTPUT_FALLBACK
+                logger.warning("chat_stream 流式输出为空，回退 draft_answer 补发 IM 卡片")
+                async for event in _emit_text(answer):
+                    yield event
 
     latency_ms = int((time.time() - start) * 1000)
     success = not refused and error_code is None
