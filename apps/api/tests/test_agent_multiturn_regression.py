@@ -305,3 +305,56 @@ def test_should_nudge_threshold() -> None:
         )
         is False
     )
+
+
+@pytest.mark.asyncio
+async def test_augment_skips_when_llm_query_high_quality(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM query top score ≥ 阈值时不补检索（零额外成本）。"""
+    call_count = [0]
+
+    async def fake_search(query: str, _session: object, top_k: int | None = None) -> list:
+        call_count[0] += 1
+        return []
+
+    monkeypatch.setattr("app.services.retrieval_service.search_knowledge", fake_search)
+
+    llm_results = [{"chunk_id": "c1", "score": 0.85}]
+    out = await agent._augment_references_with_user_query(llm_results, "用户问题", None)  # type: ignore[arg-type]
+    assert out == llm_results
+    assert call_count[0] == 0  # 高质量命中，未触发补检索
+
+
+@pytest.mark.asyncio
+async def test_augment_falls_back_when_llm_query_low_quality(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """LLM query top score < 阈值时用用户原话补检索并合并去重（本案核心回归）。
+
+    复现 trace_a8e57db4a22d4e43：LLM 改写 query「新人入职第一天流程」score 0.6950，
+    用户原话「要做哪些事」score 0.80 命中。补检索后合并去重，保证 Web/IM 结果一致。
+    """
+    async def fake_search(query: str, _session: object, top_k: int | None = None) -> list:
+        # 用户原话命中高质量（与 LLM 结果 c1 重复的也返回，验证去重）
+        return [
+            {"chunk_id": "c2", "score": 0.80, "filename": "新人入职指南.md"},
+            {"chunk_id": "c1", "score": 0.70, "filename": "新人入职指南.md"},
+        ]
+
+    monkeypatch.setattr("app.services.retrieval_service.search_knowledge", fake_search)
+
+    llm_results = [{"chunk_id": "c1", "score": 0.6950, "filename": "新人入职指南.md"}]
+    out = await agent._augment_references_with_user_query(
+        llm_results, "新人入职第一天要做哪些事？", None  # type: ignore[arg-type]
+    )
+    chunk_ids = [r["chunk_id"] for r in out]
+    assert chunk_ids == ["c2", "c1"]  # c1 去重，按 score 降序（0.80 > 0.6950）
+
+
+@pytest.mark.asyncio
+async def test_augment_no_user_message_returns_unchanged() -> None:
+    """无用户原话时直接返回 LLM 结果（边界保护）。"""
+    llm_results = [{"chunk_id": "c1", "score": 0.3}]
+    out = await agent._augment_references_with_user_query(llm_results, "", None)  # type: ignore[arg-type]
+    assert out == llm_results

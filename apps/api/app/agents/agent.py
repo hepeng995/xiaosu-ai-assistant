@@ -117,6 +117,41 @@ def _should_nudge(history: list[dict], current_user: str) -> bool:
     return _text_similarity(last_user, current_user) >= _NUDGE_SIMILARITY_THRESHOLD
 
 
+async def _augment_references_with_user_query(
+    llm_results: list[dict], user_message: str, session: AsyncSession
+) -> list[dict]:
+    """LLM 改写的 query 命中质量低时，用用户原话补检索并合并去重。
+
+    部分 LLM（mimo-v2.5）在 function calling 时会改写检索 query，若改写偏离原意
+    （如「要做哪些事」→「流程」），语义相似度跌破 ``RAG_SCORE_THRESHOLD``，导致同一
+    问题在不同渠道（Web vs 飞书，会话上下文不同 → LLM 改写出不同 query）检索结果
+    不一致、甚至漏检拒答（见 trace_a8e57db4a22d4e43：query「新人入职第一天流程」
+    top score 0.6950 < 0.72，而用户原话 0.7643）。
+
+    当 LLM query 的 top score 低于阈值时，用用户原话兜底检索一次，按 chunk_id 去重
+    合并后按 score 降序返回；LLM query 已高质量命中时直接返回，零额外成本。
+    """
+    if not user_message:
+        return llm_results
+    top_score = max((float(r.get("score") or 0) for r in llm_results), default=0.0)
+    if top_score >= settings.RAG_SCORE_THRESHOLD:
+        return llm_results
+    from app.services.retrieval_service import search_knowledge
+
+    extra = await search_knowledge(user_message, session)
+    if not extra:
+        return llm_results
+    seen = {r.get("chunk_id") for r in llm_results if r.get("chunk_id")}
+    merged = list(llm_results)
+    for item in extra:
+        cid = item.get("chunk_id")
+        if cid and cid not in seen:
+            merged.append(item)
+            seen.add(cid)
+    merged.sort(key=lambda r: float(r.get("score") or 0), reverse=True)
+    return merged
+
+
 async def prepare_response(
     messages_history: list[dict],
     user_message: str,
@@ -177,7 +212,10 @@ async def prepare_response(
                 continue
             result = await execute_tool(tool, arguments, message_id)
             if name == "search_knowledge_base" and result.success and isinstance(result.data, dict):
-                references.extend(result.data.get("results", []))
+                results = result.data.get("results", [])
+                # 兜底：LLM 改写的 query 命中质量低时，用用户原话补检索，保证 Web/IM 结果一致
+                results = await _augment_references_with_user_query(results, user_message, session)
+                references.extend(results)
             payload = result.data if result.success else {"error": result.error_message}
             conversation.append(
                 {
@@ -277,7 +315,10 @@ async def prepare_response_stream(
                 continue
             result = await execute_tool(tool, arguments, message_id)
             if name == "search_knowledge_base" and result.success and isinstance(result.data, dict):
-                references.extend(result.data.get("results", []))
+                results = result.data.get("results", [])
+                # 兜底：LLM 改写的 query 命中质量低时，用用户原话补检索，保证 Web/IM 结果一致
+                results = await _augment_references_with_user_query(results, user_message, session)
+                references.extend(results)
             payload = result.data if result.success else {"error": result.error_message}
             conversation.append(
                 {
