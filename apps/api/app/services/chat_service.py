@@ -1,5 +1,6 @@
 """聊天服务：编排 Agent（LLM 自主选工具/检索）→ 引用 + 拒答 + 落库 + 异常兜底。"""
 
+import re
 import time
 from collections.abc import AsyncIterator
 
@@ -24,7 +25,75 @@ from app.services.conversation_service import (
 
 # 模型不可用兜底文案（不暴露技术细节）
 _LLM_UNAVAILABLE = "小苏的模型服务暂时不可用，请稍后再试。"
+# 最终回答被工具调用格式泄漏过滤殆尽时的兜底（避免飞书空卡片）
+_BAD_OUTPUT_FALLBACK = "小苏刚才的回答好像出了点格式问题，能换种方式再问一次吗？"
 _STREAM_CHUNK_SIZE = 6
+
+# 部分 OpenAI-compatible 模型（如 mimo-v2.5）在多轮 tool use 后，可能在最终回答里把
+# <tool_call>...</tool_call> 当正文输出（本应走结构化 tool_calls 字段），向用户泄露内部
+# 协议。System Prompt 铁律 9 已从源头禁止；以下为工程兜底。
+_TOOL_CALL_OPEN = "<tool_call>"
+_TOOL_CALL_CLOSE = "</tool_call>"
+_TOOL_CALL_BLOCK = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL | re.IGNORECASE)
+
+
+def _trailing_prefix_len(buffer: str, marker: str) -> int:
+    """``buffer`` 末尾与 ``marker`` 前缀匹配的最大长度（用于跨 token 的标签检测）。"""
+    max_check = min(len(marker) - 1, len(buffer))
+    for length in range(max_check, 0, -1):
+        if buffer.endswith(marker[:length]):
+            return length
+    return 0
+
+
+def _sanitize_answer(text: str) -> str:
+    """清洗正文里误输出的 ``<tool_call>...</tool_call>`` 块（非流式场景）。"""
+    if not text:
+        return text
+    return _TOOL_CALL_BLOCK.sub("", text).strip()
+
+
+async def _filter_tool_call_leak(tokens: AsyncIterator[str]) -> AsyncIterator[str]:
+    """流式 token 级过滤 ``<tool_call>`` 泄漏（飞书流式卡片的关键防御）。
+
+    状态机：
+      - 正常态：``<tool_call>`` 之前的内容正常 yield，末尾若是其前缀则保留缓冲；
+      - 抑制态：进入 ``<tool_call>`` 后吞掉一切，直到 ``</tool_call>`` 闭合；
+      - 标签可能跨 token，靠 ``_trailing_prefix_len`` 避免把不完整标签当正文输出。
+    """
+    buffer = ""
+    inside = False
+    async for token in tokens:
+        buffer += token
+        while True:
+            if inside:
+                close_idx = buffer.find(_TOOL_CALL_CLOSE)
+                if close_idx == -1:
+                    keep = _trailing_prefix_len(buffer, _TOOL_CALL_CLOSE)
+                    buffer = buffer[len(buffer) - keep :] if keep else ""
+                    break
+                buffer = buffer[close_idx + len(_TOOL_CALL_CLOSE) :]
+                inside = False
+            else:
+                open_idx = buffer.find(_TOOL_CALL_OPEN)
+                if open_idx == -1:
+                    prefix_len = _trailing_prefix_len(buffer, _TOOL_CALL_OPEN)
+                    safe = len(buffer) - prefix_len
+                    if safe > 0:
+                        yield buffer[:safe]
+                        buffer = buffer[safe:]
+                    break
+                if open_idx > 0:
+                    yield buffer[:open_idx]
+                buffer = buffer[open_idx + len(_TOOL_CALL_OPEN) :]
+                inside = True
+    # 流结束收尾：仍在 <tool_call> 内或残留其不完整前缀 → 丢弃，杜绝部分标签泄漏
+    if not inside and buffer:
+        prefix_len = _trailing_prefix_len(buffer, _TOOL_CALL_OPEN)
+        if prefix_len:
+            buffer = buffer[:-prefix_len]
+        if buffer:
+            yield buffer
 
 
 def _classify_agent_error(exc: Exception) -> str:
@@ -179,7 +248,7 @@ async def chat(
         error_code = ErrorCode.UNKNOWN_ERROR
         error_message = "知识库无可引用结果"
     else:
-        answer = result.answer
+        answer = _sanitize_answer(result.answer) or _BAD_OUTPUT_FALLBACK
         refused = result.refused
         error_code = None
         error_message = None
@@ -342,7 +411,9 @@ async def stream_chat(
     else:
         answer_parts: list[str] = []
         try:
-            async for token in llm_service.chat_stream(prepared.conversation):
+            async for token in _filter_tool_call_leak(
+                llm_service.chat_stream(prepared.conversation)
+            ):
                 answer_parts.append(token)
                 yield {"event": "token", "data": {"content": token}}
         except Exception as exc:
@@ -356,7 +427,13 @@ async def stream_chat(
             else:
                 answer = "".join(answer_parts)
         else:
-            answer = "".join(answer_parts) or prepared.draft_answer
+            answer = "".join(answer_parts) or _sanitize_answer(prepared.draft_answer)
+
+    # 防御：若最终回答被 <tool_call> 泄漏过滤殆尽（或本就为空），补发兜底，避免飞书空卡片
+    if not answer:
+        answer = _BAD_OUTPUT_FALLBACK
+        async for event in _emit_text(answer):
+            yield event
 
     latency_ms = int((time.time() - start) * 1000)
     success = not refused and error_code is None
