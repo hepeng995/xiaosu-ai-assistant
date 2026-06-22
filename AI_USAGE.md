@@ -90,6 +90,21 @@ AI 生成了 `agents/agent.py`：把 5 个工具的 Schema 交给 LLM，由 LLM 
 
 **复盘**：RAG 的多轮测试**必须覆盖「重复提问」「追问改写」**两类场景，不能只靠 prompt 约束 LLM——必须有工程兜底；这个 bug 只在真实 LLM + 真实 history 下才暴露，再次印证「真实联调不可省」。
 
+## 12. 同一问题 Web 与飞书回答不一致：LLM 改写检索 query 导致（真实联调暴露 + AI 协助诊断）
+
+**现象（真实联调复现）**：用户在 Web 调试页问「新人入职第一天要做哪些事？」→ 正确回答 + 3 条引用；**同一个问题在飞书问却拒答**（「没有找到关于『新人入职第一天安排』的相关文档」）。两个渠道走的是同一套 `chat_service` 主链路、同一个知识库，结果却分裂，直接影响「RAG 稳定可复现」评分项。
+
+**根因（AI 协助查 tool_call_logs 取证）**：
+1. 查 `tool_call_logs` 表对比两次检索：Web 的 LLM 改写出 query「新人入职第一天**要做哪些事**」，命中 5 条、top score **0.7643**；飞书的 LLM 改写出 query「新人入职第一天**流程**」，命中 3 条、top score **0.6950**（跌破 0.72 质量线）。
+2. 飞书的低分 chunk 虽然返回给了 LLM，但语义偏离，LLM 判定「不相关」→ 自行生成自然语言拒答（不是系统 `REFUSAL_NO_RESULT` 模板，更难察觉）。
+3. **为什么 query 不同**：`chat_with_tools` 的 `arguments.query` 由 LLM 按 function calling 自主生成，mimo-v2.5 在不同会话上下文（Web 会话干净 vs 飞书会话历史长且杂）下改写出不同 query——这是 OpenAI-compatible 国产模型 function calling 不稳定的典型表现，也是「工具参数由 LLM 决定」设计的固有脆弱点。
+
+**修复（commit b021bea）**：在 `agent.py` 加 `_augment_references_with_user_query`——当 LLM 改写的 query 命中 top score < `RAG_SCORE_THRESHOLD` 时，**用用户原话补检索一次**，按 `chunk_id` 去重合并、按 score 降序。LLM query 高质量命中时直接返回（零额外成本）。接进 `prepare_response` 与 `prepare_response_stream` 两处 references 收集，Web/IM 路径一致。**不碰「工具选择禁硬编码」红线**——只是对检索结果做兜底增强，工具仍由 LLM 自主调用。
+
+**验证**：新增 `test_augment_*` 3 条（高质量不补检索 / 低质量补检索合并去重 / 无原话直返）+ 全量 139 passed；飞书复测同问题不再拒答。
+
+**复盘**：RAG 的检索稳定性**不能完全交给 LLM 的 query 改写**——LLM 改写有随机性、且随会话上下文漂移，必须用「用户原话」作为兜底检索词（hybrid: LLM query + user query）。这类「同输入不同渠道结果不一致」的 bug，只有在多渠道真实联调时才暴露，单渠道单测永远发现不了。
+
 ## 关键踩坑（AI 协助排查）
 
 | 问题 | 原因 | 解决 |
