@@ -44,13 +44,17 @@ async def main() -> None:
 
     success = fail = 0
     for doc in docs:
-        try:
-            await index_document(doc.id)
+        await index_document(doc.id)
+        # index_document 内部 catch 异常设 status=failed 但不 re-raise，需回查真实状态
+        async with AsyncSessionLocal() as check_session:
+            refreshed = await check_session.get(Document, doc.id)
+        if refreshed is not None and refreshed.status == "indexed":
             success += 1
             print(f"  OK   {doc.original_filename}")
-        except Exception as exc:
+        else:
             fail += 1
-            print(f"  FAIL {doc.original_filename}: {exc}")
+            err = refreshed.error_message if refreshed is not None else "文档消失"
+            print(f"  FAIL {doc.original_filename}: {err}")
     print(f"=== 完成: {success} OK / {fail} FAIL ===")
 
 

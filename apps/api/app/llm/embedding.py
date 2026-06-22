@@ -54,13 +54,23 @@ class EmbeddingService:
     async def _embed_via_api(self, texts: list[str]) -> list[list[float]]:
         with llm_span("embedding", model=self._model) as state:
             url = f"{self._base_url.rstrip('/')}/embeddings"
-            payload = {"model": self._model, "input": texts, "dimensions": self._dim}
             headers = {"Authorization": f"Bearer {self._api_key}"}
             last_exc: Exception | None = None
             emb_logger = logger.bind(module="llm", event="embedding", model=self._model)
+            # dimensions 参数并非所有模型都支持：bge-m3 等原生定长模型传了会 400。
+            # 先尝试带 dimensions，遇 400 自动降级为不传（走原生维度），兼容两类模型。
+            send_dimensions = True
             for attempt in range(1, settings.LLM_MAX_RETRIES + 2):
+                payload: dict[str, object] = {"model": self._model, "input": texts}
+                if send_dimensions:
+                    payload["dimensions"] = self._dim
                 try:
-                    emb_logger.info("embedding 请求开始 attempt={} count={}", attempt, len(texts))
+                    emb_logger.info(
+                        "embedding 请求开始 attempt={} count={} dim={}",
+                        attempt,
+                        len(texts),
+                        payload.get("dimensions"),
+                    )
                     resp = await self._client.post(url, json=payload, headers=headers)
                     resp.raise_for_status()
                     data = resp.json()
@@ -69,6 +79,22 @@ class EmbeddingService:
                     state["output"] = f"{len(result)} vectors"
                     state["usage"] = {"input": len(texts), "unit": "CHARS"}
                     return result
+                except httpx.HTTPStatusError as exc:
+                    last_exc = exc
+                    if exc.response.status_code == 400 and send_dimensions:
+                        send_dimensions = False
+                        logger.warning(
+                            "embedding 返回 400，模型可能不支持 dimensions 参数，"
+                            "已降级为原生维度重试"
+                        )
+                        continue
+                    logger.warning(
+                        "embedding 调用失败 attempt={}/{} status={} err={}",
+                        attempt,
+                        settings.LLM_MAX_RETRIES + 1,
+                        exc.response.status_code,
+                        exc,
+                    )
                 except Exception as exc:
                     last_exc = exc
                     logger.warning(
