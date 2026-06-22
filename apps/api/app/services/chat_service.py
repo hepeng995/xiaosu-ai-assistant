@@ -96,6 +96,20 @@ async def _filter_tool_call_leak(tokens: AsyncIterator[str]) -> AsyncIterator[st
             yield buffer
 
 
+def _should_refuse(tool_calls: list[dict], references: list[dict]) -> bool:
+    """拒答判断：仅当调用了知识库检索却无命中（且无其他外部工具数据）时拒答。
+
+    若 LLM 根本没调用任何工具（能力/身份/闲聊等无需知识库依据的问题），应采纳其
+    回答，不判拒答——否则会把「我是小苏，可以帮你查制度…」误报成拒答（见
+    trace_756d4ccf0a534508：职责 5 引导 LLM 对能力问题不调工具，却因 references 空
+    被旧逻辑误判拒答）。
+    """
+    has_external_tool = any(tc.get("name") != "search_knowledge_base" for tc in tool_calls)
+    searched_kb = any(tc.get("name") == "search_knowledge_base" for tc in tool_calls)
+    # 必须真的调过 search 才考虑拒答；没调任何工具 → 采纳 LLM 回答
+    return searched_kb and not has_external_tool and not references
+
+
 def _classify_agent_error(exc: Exception) -> str:
     """将 Agent/LLM 异常映射到统一错误码，避免自由发挥。"""
     text = str(exc)
@@ -236,13 +250,13 @@ async def chat(
             "refused": False,
         }
 
-    # 拒答判断：仅知识库检索且无命中 → 拒答（绝不编造）
-    has_external_tool = any(tc.get("name") != "search_knowledge_base" for tc in result.tool_calls)
+    # 拒答判断：调了知识库检索却无命中 → 拒答（绝不编造）；
+    # 但 LLM 对能力/身份/闲聊等本就不调工具的问题，应采纳其回答，不判拒答。
     answer: str
     refused: bool
     error_code: str | None
     error_message: str | None
-    if not has_external_tool and not result.references:
+    if _should_refuse(result.tool_calls, result.references):
         answer = REFUSAL_NO_RESULT
         refused = True
         error_code = ErrorCode.UNKNOWN_ERROR
@@ -389,15 +403,12 @@ async def stream_chat(
 
     # prepare_response_stream 正常完成必 yield prepared；assert 收窄类型供 mypy
     assert prepared is not None
-    has_external_tool = any(
-        tc.get("name") != "search_knowledge_base" for tc in prepared.tool_calls
-    )
     answer = ""
     refused = prepared.refused
     error_code: str | None = None
     error_message: str | None = None
 
-    if not has_external_tool and not prepared.references:
+    if _should_refuse(prepared.tool_calls, prepared.references):
         answer = REFUSAL_NO_RESULT
         refused = True
         error_code = ErrorCode.UNKNOWN_ERROR
@@ -405,7 +416,7 @@ async def stream_chat(
         async for event in _emit_text(answer):
             yield event
     elif prepared.refused or not prepared.needs_final_generation or llm_service.use_mock:
-        answer = prepared.draft_answer
+        answer = _sanitize_answer(prepared.draft_answer) or _BAD_OUTPUT_FALLBACK
         async for event in _emit_text(answer):
             yield event
     else:

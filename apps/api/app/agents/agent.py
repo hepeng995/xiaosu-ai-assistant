@@ -243,6 +243,9 @@ async def prepare_response_stream(
                     references=references,
                     tool_calls=executed,
                     usage=total_usage,
+                    # 没调用任何工具（能力/身份/闲聊等）时，LLM 已给出回答，直接采纳，
+                    # 不再走 chat_stream 二次生成——避免冗余 LLM 调用与多轮 nudge 上下文干扰。
+                    needs_final_generation=bool(executed),
                 ),
             }
             return

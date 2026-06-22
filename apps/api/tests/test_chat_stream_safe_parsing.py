@@ -13,7 +13,11 @@
 import pytest
 
 from app.llm.openai_compatible import LLMService
-from app.services.chat_service import _filter_tool_call_leak, _sanitize_answer
+from app.services.chat_service import (
+    _filter_tool_call_leak,
+    _sanitize_answer,
+    _should_refuse,
+)
 
 
 async def _aiter(seq: list[str]):
@@ -111,3 +115,24 @@ def test_sanitize_answer_keeps_normal_text() -> None:
     """正常文本与空串不受影响。"""
     assert _sanitize_answer("正常回答") == "正常回答"
     assert _sanitize_answer("") == ""
+
+
+def test_should_refuse_only_when_searched_and_empty() -> None:
+    """拒答仅当「调了知识库检索却无命中」。
+
+    回归 trace_756d4ccf0a534508：LLM 对能力问题正确地不调工具（职责 5），但旧逻辑
+    因 references 空误判拒答。修复后「没调任何工具」一律采纳 LLM 回答，不拒答。
+    """
+    # 调了 search 但无命中 → 拒答（绝不编造）
+    assert _should_refuse([{"name": "search_knowledge_base"}], []) is True
+    # 调了 search 且命中 → 不拒答
+    assert _should_refuse([{"name": "search_knowledge_base"}], [{"filename": "x"}]) is False
+    # 没调任何工具（能力/身份/闲聊）→ 不拒答（本案回归核心）
+    assert _should_refuse([], []) is False
+    # 调了外部工具 → 不拒答（有真实数据支撑）
+    assert _should_refuse([{"name": "get_employee"}], []) is False
+    # search 无命中 + 外部工具 → 不拒答
+    assert (
+        _should_refuse([{"name": "search_knowledge_base"}, {"name": "get_employee"}], [])
+        is False
+    )
